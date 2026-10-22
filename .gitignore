@@ -1,0 +1,8 @@
+eval/
+eval/
+*.log
+__pycache__/
+*.pyc
+amazon_mcp/cookies.json
+.venv/
+amazon_mcp.egg-info/

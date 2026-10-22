@@ -1,0 +1,17 @@
+[project]
+name = "amazon-mcp"
+version = "0.1.0"
+description = "MCP server for amazon.in: search, filters, pincode, product pages, reviews"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.0",
+    "curl_cffi>=0.16",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+]
+
+[project.scripts]
+amazon-mcp = "amazon_mcp.server:main"
+
+[tool.setuptools]
+packages = ["amazon_mcp"]
