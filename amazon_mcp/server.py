@@ -5,7 +5,6 @@ reviews_fetch, pincode_common). Single shared AmzSession with cookie-jar persist
 and polite rate limiting.
 
 Run: python server.py   (stdio transport)
-Self-check: python server.py --demo
 """
 import sys, os, re, json, time, random, functools, threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -379,59 +378,13 @@ def get_suggestions(query: str) -> str:
     chips = [a.get_text(strip=True) for a in soup.select('a[href*="rsl_sug"]')]
     return json.dumps({"query": query, "suggestions": chips})
 
-@mcp.tool()
-@_guarded
-def demo() -> str:
-    """Run all offline self-checks (no network). Returns {"search": ..., "product": ..., "reviews": ..., "pincode": ...}"""
-    out = {}
-    try:
-        h = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_cache", "earbuds_base.html"), encoding="utf-8").read()
-        out["search"] = {"total": sp.parse_total(h)[0], "items": len(sp.parse_products(h)), "ok": True}
-        ph = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extra_html", "search_iphone.html")
-        if os.path.exists(ph):   # extraction-depth: delivery_date / bank_offer on live tiles
-            pt = sp.parse_products(open(ph, encoding="utf-8").read())
-            assert any(t["delivery_date"] for t in pt), "no delivery_date parsed"
-            assert any(t["bank_offer"] for t in pt), "no bank_offer parsed"
-            out["search"]["delivery_date"] = next(t["delivery_date"] for t in pt if t["delivery_date"])
-            out["search"]["bank_offer"] = next(t["bank_offer"] for t in pt if t["bank_offer"])
-    except Exception as e:
-        out["search"] = {"ok": False, "error": str(e)}
-    try:
-        lap = pe.extract_product(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "product_html", "prod_laptop1.html"), encoding="utf-8").read())
-        dog = pe.extract_product(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "product_html", "prod_dead.html"), encoding="utf-8").read(), "B000000000")
-        out["product"] = {"title": lap["title"][:40], "price": lap["price"], "variants": len(lap["variants"]["items"]), "dogpage": dog.get("error"), "ok": True}
-    except Exception as e:
-        out["product"] = {"ok": False, "error": str(e)}
-    try:
-        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reviews_html")
-        h1 = open(os.path.join(d, "dp.html"), encoding="utf-8").read()
-        h2 = open(os.path.join(d, "dp2.html"), encoding="utf-8").read()
-        r1 = rf.parse_reviews(h1); r2 = rf.parse_reviews(h2)
-        rat1 = rf.parse_ratings(h1); rat2 = rf.parse_ratings(h2)
-        ex1 = rf.parse_ratings_extras(h1)   # extraction-depth: images count + mention chips
-        assert ex1["reviews_with_images"] and ex1["mention_chips"], ex1
-        out["reviews"] = {"dp1": {"n": len(r1), "avg": rat1["average"], "total": rat1["total_ratings"],
-                                  "images": ex1["reviews_with_images"], "chips": len(ex1["mention_chips"])},
-                          "dp2": {"n": len(r2), "avg": rat2["average"], "total": rat2["total_ratings"]}, "ok": True}
-    except Exception as e:
-        out["reviews"] = {"ok": False, "error": str(e)}
-    out["pincode"] = {"note": "live test only — run set_pincode('110001') to verify",
-                      "validation": {p: pc.valid_pincode(p) for p in ("110001", "400001", "12345", "abcdef", "000000")}}
-    assert not pc.valid_pincode("12345") and not pc.valid_pincode("abcdef") \
-        and not pc.valid_pincode("000000") and pc.valid_pincode("400001"), "pincode validation broken"
-    return json.dumps(out, ensure_ascii=False, default=str)
-
 def main():
     """Console-script entry point.
 
       amazon-mcp                 stdio (local agent configs)
       amazon-mcp --http          streamable-http on 127.0.0.1:8787 (web connectors, path /mcp)
       amazon-mcp --http --port 9000 --host 0.0.0.0
-      amazon-mcp --demo          offline self-check, no network
     """
-    if "--demo" in sys.argv:
-        print(demo())
-        return
     if "--http" in sys.argv:
         argv = sys.argv[1:]
         def arg(flag, default):

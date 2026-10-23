@@ -20,7 +20,6 @@ Works over **stdio** with any local agent (Claude, Codex, Cursor, Gemini, …) a
 | `set_pincode` | Set a 6-digit delivery PIN. Every later call in the session is personalized to it. Validates input before any network call. |
 | `get_delivery_info` | Delivery estimate for a product at the current pincode ("FREE delivery Friday, 23 October" or non-deliverable) |
 | `get_suggestions` | Related search suggestions for a query |
-| `demo` | Offline self-check — runs the parsers against bundled sample pages, no network |
 
 ## Install
 
@@ -40,14 +39,14 @@ python3 -m venv .venv
 .venv/bin/amazon-mcp          # starts on stdio
 ```
 
-Verify the install (offline, no network):
+Verify the install (prints the server handshake):
 
 ```bash
-.venv/bin/amazon-mcp --demo
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' | uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
 ```
 
 ```json
-{"search": {"total": 65756, "items": 22, "ok": true}, "product": {"title": "HP Victus 15 Smartchoice...", "price": "₹1,08,990.00", "variants": 8, "dogpage": "DOGPAGE", "ok": true}, "reviews": {"dp1": {"n": 13, "avg": 4.0, "total": 95266}, "dp2": {"n": 8, "avg": 3.4, "total": 42}, "ok": true}, "pincode": {"validation": {"110001": true, "400001": true, "12345": false, "abcdef": false, "000000": false}}}
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"amazon-in","version":""}}}
 ```
 
 ## Connect it (stdio — local agents)
@@ -96,7 +95,7 @@ Prefer a local checkout? Swap the command for `/path/to/amazon-mcp/.venv/bin/ama
 
 Windows: if your client doesn't put `uvx` on PATH, wrap it: `"command": "cmd", "args": ["/c", "uvx", "--from", "git+https://github.com/thenabbu/amazon-mcp", "amazon-mcp"]`.
 
-Restart the client after editing — then look for the 9 `amazon` tools in its tool picker.
+Restart the client after editing — then look for the 8 `amazon` tools in its tool picker.
 
 ## Web connectors (ChatGPT, Claude.ai)
 
@@ -174,19 +173,17 @@ Plus polite pacing (2.5–4.5 s between requests) and a shared cooldown: if amaz
 - **Tools don't show up in the client** — restart the client after editing its MCP config; the server only connects on launch. Check `uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp` runs standalone first.
 - **`RATE_LIMITED` errors** — amazon's robot-check wall; wait ~45–60 s and retry. It usually clears itself; the server already backs off for you.
 - **Slow first request** — the first call builds a session and may solve a challenge (~3–8 s).
-- **`--demo` fails** — the bundled offline self-check found a parser regression; an update of the repo likely broke an assertion.
 
 ## Project layout
 
 ```
 amazon_mcp/
-  server.py           # MCP tool layer (9 tools, input validation, thread-safe, stdio + http)
+  server.py           # MCP tool layer (8 tools, input validation, thread-safe, stdio + http)
   amz_lib.py          # HTTP session: TLS fingerprinting + Akamai challenge solvers
   search_parse.py     # search-results parser (pure functions over HTML)
   product_extract.py  # product-page parser
   reviews_fetch.py    # reviews + ratings parser
   pincode_common.py   # delivery-pincode binding
-  */ fixtures         # saved amazon.in pages used by the offline demo self-check
 ```
 
 ## License
