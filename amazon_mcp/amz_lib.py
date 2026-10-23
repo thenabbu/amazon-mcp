@@ -5,6 +5,20 @@ from curl_cffi import requests
 BASE = "https://www.amazon.in"
 VENV_PY = "/opt/data/cache/scratch/amzvenv/bin/python"
 
+# Sticky rate-wall gate: once amazon 503s, EVERY later call waits it out instead
+# of re-hammering (eval 2026-10-23: concurrent callers each burned 4 retries and
+# re-triggered the wall for minutes; one shared cooldown fixes the cascade).
+_COOLDOWN_UNTIL = 0.0
+_COOLDOWN_SECS = 45
+_MAX_WAIT = 90          # longer waits fail fast with RateLimitError instead of blocking the tool call
+
+class RateLimitError(RuntimeError):
+    """Amazon rate wall active for longer than we're willing to block."""
+    def __init__(self, retry_after):
+        self.retry_after = int(retry_after)
+        super().__init__(f"RATE_LIMITED: amazon robot-check wall active, retry after {self.retry_after}s")
+
+
 class AmzSession:
     def __init__(self):
         self.s = requests.Session(impersonate="chrome131")
@@ -51,6 +65,13 @@ class AmzSession:
         """GET with Akamai challenge solving. ONE shared `tries` cap covers the
         bm-verify interstitial, the validateCaptcha form and the 503 robot-check —
         a challenge amazon keeps re-serving returns the last response after `tries`."""
+        global _COOLDOWN_UNTIL
+        # sticky gate: wait out an active rate wall (fail fast if it's too long)
+        wait = _COOLDOWN_UNTIL - time.time()
+        if wait > 0:
+            if wait > _MAX_WAIT:
+                raise RateLimitError(wait)
+            time.sleep(wait)
         url = path if path.startswith("http") else BASE + path
         for attempt in range(tries):
             r = self.s.get(url, params=params, timeout=25, **kw)
@@ -67,8 +88,13 @@ class AmzSession:
                 except Exception as e:
                     print("  [captcha failed]", e)
             if r.status_code == 503 and "api-services-support@amazon" in r.text:
+                # robot-check wall: mark cooldown for ALL callers + back off hard
+                # (eval: 5/10/15/20s burns the whole budget in ~50s while the
+                # wall lasts minutes — real cool-downs are 1-15 min)
+                _COOLDOWN_UNTIL = time.time() + _COOLDOWN_SECS
                 print("  [503 robot-check, cooling down]")
-                time.sleep(5 + attempt * 5)
+                if attempt < tries - 1:
+                    time.sleep([20, 40, 60][min(attempt, 2)])
                 continue
             return r
         return r

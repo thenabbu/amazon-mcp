@@ -372,9 +372,51 @@ def test_demo_green():
     print("PASS test_demo_green")
 
 
+# ---------------------------------------------------------------- 4b. rate-limit gate
+def test_rate_limit_gate():
+    # (a) a 503 robot-check page maps to structured RATE_LIMITED, not raw HTTP 503 / DOGPAGE
+    class S:
+        def get(self, path, params=None):
+            return FakeResp("api-services-support@amazon.com robot check", status=503)
+    try:
+        server._get(S(), "/s")
+        raise AssertionError("503 not mapped to RATE_LIMITED")
+    except server.ToolError as e:
+        assert e.code == "RATE_LIMITED" and e.kw.get("retry_after") == 45, e.__dict__
+    # (b) sticky cooldown: a wall active longer than the wait cap fails fast, zero fetches
+    saved = amz_lib._COOLDOWN_UNTIL
+    try:
+        amz_lib._COOLDOWN_UNTIL = time.time() + 5000
+        calls = [0]
+        stub = amz_lib.AmzSession.__new__(amz_lib.AmzSession)
+        def fake_get(*a, **k):
+            calls[0] += 1
+            return FakeResp("ok")
+        stub.s = types.SimpleNamespace(get=fake_get)
+        try:
+            amz_lib.AmzSession.get(stub, "/s")
+            raise AssertionError("cooldown gate did not raise")
+        except amz_lib.RateLimitError as e:
+            assert e.retry_after > 0 and calls[0] == 0, (e.retry_after, calls[0])
+        # (c) a 503 mid-flight marks the shared cooldown for every other caller
+        amz_lib._COOLDOWN_UNTIL = 0.0
+        stub.s = types.SimpleNamespace(get=lambda *a, **k: FakeResp(
+            "api-services-support@amazon.com", status=503))
+        real_sleep = amz_lib.time.sleep
+        amz_lib.time.sleep = lambda s: None      # backoff sleeps are the point, not the test
+        try:
+            amz_lib.AmzSession.get(stub, "/s")
+        finally:
+            amz_lib.time.sleep = real_sleep
+        assert amz_lib._COOLDOWN_UNTIL > time.time() + 30, "503 did not set shared cooldown"
+    finally:
+        amz_lib._COOLDOWN_UNTIL = saved
+    print("PASS test_rate_limit_gate")
+
+
 TESTS = [test_asin_normalize, test_invalid_asin_rejected_before_network,
-         test_corrupted_cookie_recovery, test_challenge_retry_cap, test_max_pages,
-         test_clip, test_fuzz_no_exceptions, test_empty_response_body,
+         test_corrupted_cookie_recovery, test_challenge_retry_cap, test_rate_limit_gate,
+         test_max_pages, test_clip, test_fuzz_no_exceptions, test_empty_response_body,
          test_thread_serialization, test_demo_green]
 
 

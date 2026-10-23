@@ -11,7 +11,7 @@ import sys, os, re, json, time, random, functools, threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
-from amz_lib import AmzSession, polite
+from amz_lib import AmzSession, polite, RateLimitError
 import search_parse as sp
 import product_extract as pe
 import reviews_fetch as rf
@@ -87,8 +87,13 @@ class ToolError(Exception):
         self.code, self.kw = code, kw
 
 def _get(s, path, params=None):
-    """GET + reject an empty response body before any parser sees it."""
+    """GET + reject an empty response body or rate-wall before any parser sees it."""
     r = s.get(path, params)
+    if r.status_code == 503:
+        # all tools route through here — one guard fixes every caller (eval 2026-10-23:
+        # 11+ calls across 3 agents died as raw {"error":"HTTP 503"} / a mislabeled DOGPAGE)
+        raise ToolError("RATE_LIMITED", retry_after=45,
+                        detail="amazon robot-check rate wall — wait ~45-60s and retry; pace heavy calls")
     if not (r.text or "").strip():
         raise ToolError("EMPTY_RESPONSE", detail="network returned an empty body")
     return r
@@ -103,6 +108,8 @@ def _guarded(fn):
                 return fn(*a, **kw)
         except ToolError as e:
             return _err(e.code, tool=fn.__name__, **e.kw)
+        except RateLimitError as e:
+            return _err("RATE_LIMITED", tool=fn.__name__, retry_after=e.retry_after, detail=str(e))
         except Exception as e:
             return _err("EXCEPTION", tool=fn.__name__, detail=f"{type(e).__name__}: {e}")
     return w
@@ -127,9 +134,10 @@ def _save_jar():
         pass
 
 def _relaxed_polite():
-    # ponytail: 1.5-3s jitter is enough; skip on first call
+    # eval 2026-10-23: 1.2-2.2s between multi-page fetches still tripped the Akamai
+    # wall under load — 2.5-4.5s holds. (patched to no-op by test_hardening)
     if _az is not None:
-        time.sleep(random.uniform(1.2, 2.2))
+        time.sleep(random.uniform(2.5, 4.5))
 
 # ---------------------------------------------------------------- tools
 @mcp.tool()
