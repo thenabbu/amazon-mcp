@@ -2,6 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20%7C%20http-green)](https://modelcontextprotocol.io)
+[![CI](https://github.com/thenabbu/amazon-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/thenabbu/amazon-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
 An MCP server for **amazon.in** — search with full filters, read product pages, reviews, and pincode-based delivery info. **Zero configuration**: no API key, no login, no account, no environment variables.
@@ -18,8 +19,11 @@ Works over **stdio** with any local agent (Claude, Codex, Cursor, Gemini, …) a
 | `get_reviews` | Ratings histogram (avg, total, per-star counts) + top reviews (rating, title, body, author, date, country, verified flag, helpful votes, images hi-res, variation) |
 | `get_all_reviews` | Paginated review list with sort/star filters — requires an authenticated session (see Limits) |
 | `set_pincode` | Set a 6-digit delivery PIN. Every later call in the session is personalized to it. Validates input before any network call. |
-| `get_delivery_info` | Delivery estimate for a product at the current pincode ("FREE delivery Friday, 23 October" or non-deliverable) |
+| `get_delivery_info` | Delivery estimate for a product. Optional `pincode` param binds + fetches atomically inside one call (race-free when several agents share the server) |
 | `get_suggestions` | Related search suggestions for a query |
+| `search_best_value` | Search, then rank by a **transparent** value score: `rating × log10(rating_count+10) ÷ √price` — deterministic, formula returned with every response, no hidden weights |
+| `compare_products` | Side-by-side compare of up to 5 ASINs: normalized rows + `lowest_price_asin` / `highest_rating_asin` / `missing_fields` (unknowns stay visible, never guessed). Optional `pincode` adds deliverability per product |
+| `get_price_history` | Local SQLite price observations (recorded automatically on every `get_product`/`compare_products` fetch): min/max/median/latest with the observation count stated up front — honest about being our own samples, not an exchange-wide history |
 
 ## Install
 
@@ -28,6 +32,14 @@ One command, no clone (needs [`uv`](https://docs.astral.sh/uv/)):
 ```bash
 uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
 ```
+
+**Pinned / stable** (recommended for configs you don't want moving under you — releases are tagged):
+
+```bash
+uvx --from git+https://github.com/thenabbu/amazon-mcp@v0.1.0 amazon-mcp
+```
+
+The untagged command always runs the latest `master`; the tagged one installs exactly that release.
 
 Or install locally (needs Python 3.11+):
 
@@ -46,7 +58,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ```
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"amazon-in","version":""}}}
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"amazon-in","version":"0.1.0"}}}
 ```
 
 ## Connect it (stdio — local agents)
@@ -95,7 +107,7 @@ Prefer a local checkout? Swap the command for `/path/to/amazon-mcp/.venv/bin/ama
 
 Windows: if your client doesn't put `uvx` on PATH, wrap it: `"command": "cmd", "args": ["/c", "uvx", "--from", "git+https://github.com/thenabbu/amazon-mcp", "amazon-mcp"]`.
 
-Restart the client after editing — then look for the 8 `amazon` tools in its tool picker.
+Restart the client after editing — then look for the 11 `amazon` tools in its tool picker.
 
 ## Web connectors (ChatGPT, Claude.ai)
 
@@ -189,7 +201,7 @@ Plus polite pacing (2.5–4.5 s between requests) and a shared cooldown: if amaz
 
 ```
 amazon_mcp/
-  server.py           # MCP tool layer (8 tools, input validation, thread-safe, stdio + http)
+  server.py           # MCP tool layer (11 tools, input validation, thread-safe, stdio + http)
   amz_lib.py          # HTTP session: TLS fingerprinting + Akamai challenge solvers
   search_parse.py     # search-results parser (pure functions over HTML)
   product_extract.py  # product-page parser

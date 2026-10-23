@@ -6,7 +6,7 @@ and polite rate limiting.
 
 Run: python server.py   (stdio transport)
 """
-import sys, os, re, json, time, random, functools, threading, secrets
+import sys, os, re, json, time, random, functools, threading, secrets, math, sqlite3, statistics, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
@@ -199,13 +199,7 @@ def search_products(query: str, page: int = 1, category: str = "",
                     include_out_of_stock: bool = False,
                     country_of_origin: str = "", cod: bool = False,
                     condition: str = "", max_pages: int = 1) -> str:
-    """Search amazon.in with full filter control. Returns products + total count + available filter tokens.
-    category: search-alias (aps, electronics, computers, stripbooks, apparel, kitchen, hpc, beauty, appliances, baby, automotive, shoes, sporting, toys, videogames, watches, jewelry, luggage, office-products, pets, grocery, furniture, lawngarden, home-improvement, mi, software, mobile-apps, instant-video, digital-text, audible, todays-deals, gift-cards, fashion, alexa-skills, amazon-devices)
-    sort: relevanceblender(Featured), price-asc-rank, price-desc-rank, review-rank(Avg. Customer Review), date-desc-rank(Newest Arrivals), exact-aware-popularity-rank(Best Sellers)
-    min_price/max_price: rupees. min_rating: 4.0 for 4 Stars & Up. brands: use discover_brands() first.
-    max_pages: fetch up to 7 pages starting at `page`, aggregated and deduped by ASIN.
-    Per-tile extras: delivery_date (structured 'Fri, 23 Oct' | 'Tomorrow' | 'Today' parsed from delivery text) and bank_offer (offer/EMI line like 'Save extra with No Cost EMI'; plain 'Bank Offer' text does not render on amazon.in tiles).
-    Returns: {"total": N, "products": [...], "available_filter_tokens": {...}}"""
+    """Search amazon.in with full filter control. Params: category (search-alias: aps, electronics, computers, stripbooks, apparel, kitchen, hpc, beauty, appliances, baby, automotive, shoes, sporting, toys, watches, jewelry, grocery, furniture, todays-deals, fashion, mi, ...), min_price/max_price (INR), min_rating (EXACT — upstream 4+ hint plus post-filter), brands (call discover_brands() first; unmatched/ambiguous brands are reported in warnings, never silently dropped), sort (relevanceblender | price-asc-rank | price-desc-rank | review-rank | date-desc-rank | exact-aware-popularity-rank), free_delivery, include_out_of_stock, cod, country_of_origin, condition ('' or 'New' only), max_pages (<=7, aggregated + ASIN-deduped). Returns {total, count, products[], filters_applied{}, filtered_out, warnings[], available_filter_tokens{}} — read warnings[] for anything the filters could NOT apply."""
     for bad in (_validate_query(query), _validate_page(page), _validate_category(category)):
         if bad:
             return bad
@@ -317,14 +311,7 @@ def discover_brands(query: str, category: str = "") -> str:
 @mcp.tool()
 @_guarded
 def get_product(asin: str) -> str:
-    """Get full product detail for an ASIN: title, brand, price, images (hi-res), bullets, description, A+ content, details table, variants (color/size), availability, rating, review_count, breadcrumbs, seller, EMI line, offers (bank/cashback/partner list), exchange offer, warranty, frequently-bought-together (fbt), size chart.
-    New (extraction-depth): customers_say {summary, themes[]} (AI 'Customers say' block), video_count + video_thumb, aplus_images[] (A+ is inline image-heavy on amazon.in — no iframe; aplus holds its text headings), ships_from (the 'Dispatched by' slot does not render on amazon.in — Ships from vs Sold by is the split), add_to_cart (bool), buying_options_count (from the 'Other sellers/New (N) from' link; None when single/absent).
-    details now merges table.prodDetTable + productDetails_techSpec_section* + productDetails_detailBullets_sections* + the product-overview po- grid (existing keys win; 'Best Sellers Rank' lands from the spec tables when rendered — 'Date First Available' does not render on amazon.in pages seen).
-    Returns: {asin, title, brand, price, price_value, list_price, savings_pct, images, bullets, description, aplus, details, variants, availability, rating, review_count, breadcrumbs, seller, emi, offers, exchange_offer, warranty, fbt, size_chart, customers_say, video_count, video_thumb, aplus_images, ships_from, add_to_cart, buying_options_count}
-    `asin` also accepts a full amazon.in product URL (/dp/, /gp/product/, /product/, /gp/aw/d/)
-    or a 10-digit ISBN-10 — the ASIN is extracted; garbage returns {"error": "INVALID_ASIN"}
-    before any request. description/aplus are capped at 6000 chars (see _clip).
-    404/dead ASIN: {"error": "DOGPAGE"} (small body, 'Page Not Found')."""
+    """Full product detail for an ASIN or pasted amazon.in product URL: price/MRP/savings, hi-res images, bullets, description, A+ content, spec detail tables, variants, availability, rating + review count, breadcrumbs, seller, EMI/bank/cashback offers, exchange, warranty, frequently-bought-together, size chart, customers-say AI summary, videos, ships_from/sold_by, add_to_cart, buying_options_count. Returns flat JSON of those keys + warnings[] (e.g. PRICE_UNAVAILABLE when the page renders no usable price). description/aplus capped at 6000 chars; dead ASIN -> {"error": "DOGPAGE"}."""
     a, bad = _need_asin(asin)
     if bad:
         return bad
@@ -335,6 +322,9 @@ def get_product(asin: str) -> str:
     out["description"] = _clip(out.get("description"))
     out["aplus"] = _clip(out.get("aplus"))
     out["http_status"] = r.status_code
+    # best-effort local price observation (never fails the fetch)
+    if out.get("price_value"):
+        _record_price(a, out.get("price_value"), out.get("list_price"), out.get("availability"))
     # honest per-field reporting: a missing price is NOT a successful full extraction
     out["warnings"] = (["PRICE_UNAVAILABLE: no parseable price rendered on this page"]
                        if out.get("price_value") is None else [])
@@ -343,8 +333,7 @@ def get_product(asin: str) -> str:
 @mcp.tool()
 @_guarded
 def get_reviews(asin: str) -> str:
-    """Get ratings histogram + top reviews for an ASIN (no login). Returns: {"asin":..., "ratings": {"average":..., "total_ratings":..., "histogram_percent": {...}, "histogram_counts": {...}}, "ratings_extras": {"reviews_with_images": <distinct reviews in the 'Reviews with images' carousel, null if widget absent>, "mention_chips": [{"theme":..., "mentions":..., "positive":..., "negative":...}, ...]}, "top_reviews": [{"review_id":..., "rating":..., "title":..., "author":..., "country":..., "date":..., "verified_purchase":..., "body":..., "helpful_count":..., "images": [...], "images_hi_res": [...], "has_image": bool}, ...]}
-    Top reviews: up to ~13 domestic + foreign batch. 0-review product: ratings total 0, histogram {}, top_reviews []. Star distribution IS the histogram (no separate widget). For deep paginated history see get_all_reviews."""
+    """Ratings histogram + top reviews for an ASIN, no login needed. Returns {ratings: {average, total_ratings, histogram_percent, histogram_counts}, ratings_extras: {reviews_with_images, mention_chips[{theme, mentions, positive, negative}]}, top_reviews: [{rating, title, author, country, date, verified_purchase, body, helpful_count, images[]}]}. Zero-review product -> ratings total 0, top_reviews []. For paginated review history see get_all_reviews (login-gated)."""
     a, bad = _need_asin(asin)
     if bad:
         return bad
@@ -472,6 +461,142 @@ def get_suggestions(query: str) -> str:
     soup = BeautifulSoup(r.text, "lxml")
     chips = [a.get_text(strip=True) for a in soup.select('a[href*="rsl_sug"]')]
     return json.dumps({"query": query, "suggestions": chips})
+
+# ------------------------------------------- value score / compare / price history (review §6)
+def _raw(fn):
+    """Undecorated impl of a @_guarded tool — lets one guarded tool call another
+    WITHOUT deadlocking on the non-reentrant _NET lock."""
+    return getattr(fn, "__wrapped__", fn)
+
+def _value_score(rating, rating_count, price):
+    """Transparent deterministic value score: rating * log10(rating_count+10) / sqrt(price INR).
+    Documented formula, no hidden weights (review: borrow the idea, keep it auditable)."""
+    return rating * math.log10((rating_count or 0) + 10) / math.sqrt(price)
+
+def _compare_rows(rows):
+    """Pure comparison assembly from normalized rows — unknowns stay visible."""
+    priced = [r for r in rows if r.get("price_value")]
+    rated = [r for r in rows if r.get("rating")]
+    keys = ["price_value", "rating", "review_count", "availability", "brand"]
+    missing = {r["asin"]: [k for k in keys if r.get(k) in (None, "", [])] for r in rows}
+    return {
+        "lowest_price_asin": min(priced, key=lambda r: r["price_value"])["asin"] if priced else None,
+        "highest_rating_asin": max(rated, key=lambda r: r["rating"])["asin"] if rated else None,
+        "missing_fields": {a: ks for a, ks in missing.items() if ks},
+    }
+
+def _price_db():
+    pc.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(str(pc.STATE_DIR / "prices.db"))
+    c.execute("CREATE TABLE IF NOT EXISTS price_observations (asin TEXT NOT NULL, observed_at TEXT NOT NULL, price REAL, list_price REAL, availability TEXT)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_po_asin ON price_observations(asin)")
+    return c
+
+def _record_price(asin, price, list_price=None, availability=None):
+    if not price:
+        return
+    try:
+        with _price_db() as c:
+            c.execute("INSERT INTO price_observations VALUES (?,?,?,?,?)",
+                      (asin, datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                       price, list_price, availability))
+    except Exception:
+        pass   # history is best-effort — a db hiccup must never fail a product fetch
+
+@mcp.tool()
+@_guarded
+def search_best_value(query: str, min_price: int = 0, max_price: int = 0, min_rating: float = 0.0,
+                      category: str = "", page: int = 1, max_pages: int = 1,
+                      brands: list[str] | None = None) -> str:
+    """Search, then rank results by a transparent deterministic value score: value_score = rating * log10(rating_count + 10) / sqrt(price INR), sorted desc — per-item score and components included, no hidden weights. Unpriced/unrated items are excluded (counted in warnings). Filters behave exactly like search_products."""
+    raw = json.loads(_raw(search_products)(query, page=page, category=category,
+                      min_price=min_price, max_price=max_price, min_rating=min_rating,
+                      brands=brands, max_pages=max_pages))
+    if "error" in raw:
+        return json.dumps(raw, ensure_ascii=False, default=str)
+    scored, skipped = [], 0
+    for p in raw.get("products", []):
+        pr, rt, rc = p.get("price"), p.get("rating"), p.get("rating_count")
+        if not pr or pr <= 0 or rt is None:
+            skipped += 1
+            continue
+        item = {k: p.get(k) for k in ("asin", "title", "price", "rating", "rating_count", "url", "sponsored")}
+        item["value_score"] = round(_value_score(rt, rc, pr), 4)
+        scored.append(item)
+    scored.sort(key=lambda x: -x["value_score"])
+    warnings = list(raw.get("warnings", []))
+    if skipped:
+        warnings.append(f"value score skipped {skipped} items lacking a price or rating")
+    return json.dumps({"query": query, "formula": "rating * log10(rating_count+10) / sqrt(price_inr)",
+                       "count": len(scored), "products": scored, "warnings": warnings},
+                      ensure_ascii=False, default=str)
+
+@mcp.tool()
+@_guarded
+def compare_products(asins: list[str], pincode: str | None = None) -> str:
+    """Compare up to 5 ASINs side by side (sequential fetches, ~5-8s each — a 5-product compare takes ~30-40s). Returns {products: [{asin, title, brand, price_value, list_price, rating, review_count, availability, add_to_cart, delivery?}], comparison: {lowest_price_asin, highest_rating_asin, missing_fields}, warnings[]}. Only actually-extracted fields are compared — gaps stay visible in missing_fields, never guessed. pincode adds deliverability per product (bound atomically, once)."""
+    if not isinstance(asins, list) or not 1 <= len(asins) <= 5 or not all(isinstance(a, str) for a in asins):
+        return _err("INVALID_PARAM", param="asins", detail="asins must be a list of 1-5 ASINs or product URLs")
+    norm, errs = [], []
+    for x in asins:
+        a, bad = _need_asin(x)
+        if bad:
+            errs.append({"input": str(x)[:80], "error": json.loads(bad)})
+        else:
+            norm.append(a)
+    if errs:
+        return json.dumps({"error": "INVALID_ASIN", "rejected": errs, "accepted": norm}, ensure_ascii=False, default=str)
+    if pincode is not None and not pc.valid_pincode(pincode):
+        return _err("INVALID_PARAM", param="pincode", detail=f"invalid pincode {pincode!r} — expected 6 digits, first digit 1-9")
+    rows = []
+    for a in dict.fromkeys(norm):   # dedupe, keep order
+        pr = json.loads(_raw(get_product)(a))
+        if "error" in pr:
+            rows.append({"asin": a, "error": pr["error"]})
+            continue
+        row = {k: pr.get(k) for k in ("asin", "title", "brand", "price_value", "list_price",
+                                      "rating", "review_count", "availability", "add_to_cart")}
+        if pr.get("warnings"):
+            row["warnings"] = pr["warnings"]
+        if pincode:
+            d = json.loads(_raw(get_delivery_info)(a, pincode))
+            row["delivery"] = {"bound_pin": d.get("bound_pin_context") or d.get("dp_zip"),
+                               "delivery_info": d.get("delivery_info"), "error": d.get("error")}
+        rows.append(row)
+    ok = [r for r in rows if "error" not in r]
+    warnings = [f"{r['asin']}: {r['error']}" for r in rows if "error" in r]
+    return json.dumps({"products": rows, "comparison": _compare_rows(ok) if ok else {},
+                       "warnings": warnings}, ensure_ascii=False, default=str)
+
+@mcp.tool()
+@_guarded
+def get_price_history(asin: str, days: int = 90) -> str:
+    """Local price-observation history for an ASIN (SQLite; get_product/compare record observations automatically). Returns {asin, window_days, observations, days_covered, first_observed, last_observed, min, max, median, latest, series[], note}. Honest scope: stats come from OUR OWN fetches only — the note states observation count, so 2 data points are never dressed up as a market history."""
+    a, bad = _need_asin(asin)
+    if bad:
+        return bad
+    if not isinstance(days, int) or not 1 <= days <= 3650:
+        return _err("INVALID_PARAM", param="days", detail="days must be an integer 1-3650")
+    cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat(timespec="seconds")
+    try:
+        with _price_db() as c:
+            rows = c.execute("SELECT observed_at, price, list_price, availability FROM price_observations "
+                             "WHERE asin=? AND observed_at>=? ORDER BY observed_at", (a, cutoff)).fetchall()
+    except Exception as e:
+        return _err("EXCEPTION", detail=f"price db: {e}")
+    obs = [{"observed_at": r[0], "price": r[1], "list_price": r[2], "availability": r[3]} for r in rows]
+    if not obs:
+        return json.dumps({"asin": a, "window_days": days, "observations": 0,
+                           "note": "no local observations yet — call get_product to start recording"},
+                          ensure_ascii=False)
+    prices = [o["price"] for o in obs]
+    return json.dumps({"asin": a, "window_days": days, "observations": len(obs),
+                       "days_covered": len({o["observed_at"][:10] for o in obs}),
+                       "first_observed": obs[0]["observed_at"], "last_observed": obs[-1]["observed_at"],
+                       "min": min(prices), "max": max(prices),
+                       "median": statistics.median(prices), "latest": prices[-1], "series": obs,
+                       "note": f"derived from {len(obs)} local observation(s) since {obs[0]['observed_at'][:10]} — our own fetches only, not an exchange-wide history"},
+                      ensure_ascii=False)
 
 def main():
     """Console-script entry point.
