@@ -12,7 +12,10 @@ import re, json, random, sys, pathlib, html as H
 # shadowed this module when server.py imported it after reviews_fetch)
 from amz_lib import AmzSession, BASE, polite
 
-OUT = pathlib.Path("/opt/data/cache/scratch/amazon_recon")
+# state dir: real per-user location (was a /opt/data/cache/scratch dev path — that
+# absolute path must NEVER ship; server.py stores its cookie jar here too)
+STATE_DIR = pathlib.Path.home() / ".local" / "state" / "amazon-mcp"
+OUT = STATE_DIR  # dev self-check alias
 CHANGE_URL = BASE + "/gp/delivery/ajax/address-change.html"
 LABEL_URL = BASE + "/portal-migration/hz/glow/get-location-label"
 
@@ -85,10 +88,11 @@ def dp_zipcode(html):
     return m.group(1) if m else None
 
 def save_jar(az, name="cookies.json"):
-    (OUT / name).write_text(json.dumps(dict(az.s.cookies.items()), indent=1))
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    (STATE_DIR / name).write_text(json.dumps(dict(az.s.cookies.items()), indent=1))
 
 def load_jar(az, name="cookies.json"):
-    p = OUT / name
+    p = STATE_DIR / name
     if p.exists():
         az.s.cookies.update(json.loads(p.read_text()))
 
