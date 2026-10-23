@@ -176,7 +176,8 @@ def parse_ratings_extras(html_text):
 
 def demo():
     """Self-check against recon-saved HTML (no requests). Run live with an ASIN arg to fetch."""
-    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reviews_html")
+    d = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "tests", "fixtures", "reviews")
     for f, n_rev, avg, total, h5 in [("dp.html", 13, 4.0, 95266, 54), ("dp2.html", 8, 3.4, 42, 50)]:
         h = open(os.path.join(d, f), encoding="utf-8").read()
         revs = parse_reviews(h)
