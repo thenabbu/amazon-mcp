@@ -10,7 +10,6 @@ VENV_PY = "/opt/data/cache/scratch/amzvenv/bin/python"
 # re-triggered the wall for minutes; one shared cooldown fixes the cascade).
 _COOLDOWN_UNTIL = 0.0
 _COOLDOWN_SECS = 45
-_MAX_WAIT = 90          # longer waits fail fast with RateLimitError instead of blocking the tool call
 
 class RateLimitError(RuntimeError):
     """Amazon rate wall active for longer than we're willing to block."""
@@ -66,12 +65,11 @@ class AmzSession:
         bm-verify interstitial, the validateCaptcha form and the 503 robot-check —
         a challenge amazon keeps re-serving returns the last response after `tries`."""
         global _COOLDOWN_UNTIL
-        # sticky gate: wait out an active rate wall (fail fast if it's too long)
+        # sticky gate: fail fast with retry_after — NEVER sleep an MCP tool call
+        # (a sleep here runs under server._NET and freezes EVERY tool with it)
         wait = _COOLDOWN_UNTIL - time.time()
         if wait > 0:
-            if wait > _MAX_WAIT:
-                raise RateLimitError(wait)
-            time.sleep(wait)
+            raise RateLimitError(wait)
         url = path if path.startswith("http") else BASE + path
         for attempt in range(tries):
             r = self.s.get(url, params=params, timeout=25, **kw)
@@ -88,14 +86,13 @@ class AmzSession:
                 except Exception as e:
                     print("  [captcha failed]", e)
             if r.status_code == 503 and "api-services-support@amazon" in r.text:
-                # robot-check wall: mark cooldown for ALL callers + back off hard
-                # (eval: 5/10/15/20s burns the whole budget in ~50s while the
-                # wall lasts minutes — real cool-downs are 1-15 min)
+                # robot-check wall: mark the shared cooldown for ALL callers, then
+                # FAIL FAST with retry_after. In-lock sleeps (old 20/40/60s backoff)
+                # froze every tool for minutes; walls last 1-15 min, callers retry
+                # when their own client timeout allows.
                 _COOLDOWN_UNTIL = time.time() + _COOLDOWN_SECS
-                print("  [503 robot-check, cooling down]")
-                if attempt < tries - 1:
-                    time.sleep([20, 40, 60][min(attempt, 2)])
-                continue
+                print("  [503 robot-check: cooldown set, failing fast]")
+                raise RateLimitError(_COOLDOWN_SECS)
             return r
         return r
 
