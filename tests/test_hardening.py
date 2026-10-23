@@ -473,11 +473,93 @@ def test_state_paths():
     print("PASS test_state_paths")
 
 
+# ------------------------------------------------------------ 14. value score + compare (review §6/§7)
+def test_value_and_compare():
+    import math
+    s = server._value_score(4.5, 999, 14999)
+    assert abs(s - 4.5 * math.log10(1009) / math.sqrt(14999)) < 1e-9, s
+    assert server._value_score(4.0, None, 100) > 0          # missing count tolerated
+    rows = [
+        {"asin": "A1", "price_value": 999, "rating": 4.1, "review_count": 10, "availability": "In stock", "brand": "X"},
+        {"asin": "A2", "price_value": 1999, "rating": 4.5, "review_count": None, "availability": None, "brand": None},
+        {"asin": "A3", "price_value": None, "rating": None, "review_count": 5, "availability": "", "brand": "Y"},
+    ]
+    c = server._compare_rows(rows)
+    assert c["lowest_price_asin"] == "A1" and c["highest_rating_asin"] == "A2", c
+    assert "A1" not in c["missing_fields"], c["missing_fields"]     # complete row absent
+    assert c["missing_fields"]["A2"] == ["review_count", "availability", "brand"], c["missing_fields"]
+    assert "price_value" in c["missing_fields"]["A3"] and "rating" in c["missing_fields"]["A3"], c
+    assert server._compare_rows([]) == {"lowest_price_asin": None, "highest_rating_asin": None, "missing_fields": {}}
+    print("PASS test_value_and_compare")
+
+
+# ------------------------------------- 15. search_best_value + compare validation (stubbed, offline)
+def test_best_value_and_compare_tools():
+    fake = lambda *a, **k: json.dumps({"products": [
+        {"asin": "B0AAAAAAA1", "title": "good cheap", "price": 500, "rating": 4.4, "rating_count": 9000},
+        {"asin": "B0AAAAAAA2", "title": "pricey", "price": 50000, "rating": 4.9, "rating_count": 50},
+        {"asin": "B0AAAAAAA3", "title": "no price", "price": None, "rating": 4.0, "rating_count": 100},
+        {"asin": "B0AAAAAAA4", "title": "no rating", "price": 1000, "rating": None, "rating_count": 100},
+    ], "warnings": ["upstream note"]})
+    orig = server.search_products
+    server.search_products = fake    # _raw() falls back to the object itself
+    try:
+        r = json.loads(server.search_best_value("anything"))
+    finally:
+        server.search_products = orig
+    assert r["formula"] == "rating * log10(rating_count+10) / sqrt(price_inr)", r.get("formula")
+    assert r["count"] == 2, [p["asin"] for p in r.get("products", [])]
+    scores = [p["value_score"] for p in r["products"]]
+    assert scores == sorted(scores, reverse=True), scores
+    assert any("skipped 2" in w for w in r["warnings"]), r["warnings"]
+    assert "upstream note" in r["warnings"], r["warnings"]      # upstream warnings pass through
+    assert r["products"][0]["asin"] == "B0AAAAAAA1", r["products"][0]   # cheap+rated outranks pricey
+    # compare_products validation rejects BEFORE any network
+    rr = json.loads(server.compare_products(["not real!!"]))
+    assert rr.get("error") == "INVALID_ASIN", rr
+    rr = json.loads(server.compare_products([]))
+    assert rr.get("error") == "INVALID_PARAM", rr
+    rr = json.loads(server.compare_products(["B0G2B2QVLL"], pincode="000000"))
+    assert rr.get("error") == "INVALID_PARAM" and rr.get("param") == "pincode", rr
+    print("PASS test_best_value_and_compare_tools")
+
+
+# ----------------------------------------------------- 16. price history lifecycle (isolated db)
+def test_price_history():
+    import pathlib
+    tmp = tempfile.mkdtemp(prefix="amzhist_")
+    orig_state = server.pc.STATE_DIR
+    server.pc.STATE_DIR = pathlib.Path(tmp)
+    try:
+        h = json.loads(server.get_price_history("B0HISTTEST"))
+        assert h["observations"] == 0 and "no local observations" in h["note"], h
+        server._record_price("B0HISTTEST", 100.0, 120.0, "In stock")
+        time.sleep(1.1)
+        server._record_price("B0HISTTEST", 90.0, 120.0, "In stock")
+        time.sleep(1.1)
+        server._record_price("B0HISTTEST", 110.0, None, "In stock")
+        h = json.loads(server.get_price_history("B0HISTTEST", days=1))
+        assert h["observations"] == 3, h
+        assert h["min"] == 90.0 and h["max"] == 110.0 and h["median"] == 100.0, h
+        assert h["latest"] == 110.0 and h["days_covered"] >= 1, h
+        assert "3 local observation" in h["note"], h["note"]      # honest observation count
+        server._record_price("B0HISTTEST", None)                  # no-price = no-op
+        assert json.loads(server.get_price_history("B0HISTTEST"))["observations"] == 3
+        r = json.loads(server.get_price_history("bad asin!!"))
+        assert r.get("error") == "INVALID_ASIN", r
+        r = json.loads(server.get_price_history("B0HISTTEST", days=0))
+        assert r.get("error") == "INVALID_PARAM", r
+    finally:
+        server.pc.STATE_DIR = orig_state
+    print("PASS test_price_history")
+
+
 TESTS = [test_asin_normalize, test_invalid_asin_rejected_before_network,
          test_corrupted_cookie_recovery, test_challenge_retry_cap, test_rate_limit_gate,
          test_max_pages, test_clip, test_fuzz_no_exceptions, test_empty_response_body,
          test_thread_serialization, test_filter_honesty, test_contract_validations,
-         test_state_paths]
+         test_state_paths, test_value_and_compare, test_best_value_and_compare_tools,
+         test_price_history]
 
 
 def main():
