@@ -6,10 +6,12 @@ and polite rate limiting.
 
 Run: python server.py   (stdio transport)
 """
-import sys, os, re, json, time, random, functools, threading
+import sys, os, re, json, time, random, functools, threading, secrets
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.auth.settings import AuthSettings
+from mcp.server.auth.provider import AccessToken
 from amz_lib import AmzSession, polite, RateLimitError
 import search_parse as sp
 import product_extract as pe
@@ -17,7 +19,25 @@ import reviews_fetch as rf
 import pincode_common as pc
 
 COOKIE_JAR = os.path.join(str(pc.STATE_DIR), "cookies.json")
-mcp = MCPServer("amazon-in", version="0.1.0")
+
+# Opt-in bearer auth for --http (review P0): set AMAZON_MCP_TOKEN and every
+# /mcp request must carry `Authorization: Bearer <token>`; unset = open endpoint
+# (README warns). Public URL feeds the OAuth protected-resource metadata only.
+_HTTP_TOKEN = os.environ.get("AMAZON_MCP_TOKEN", "").strip()
+_PUBLIC_URL = os.environ.get("AMAZON_MCP_PUBLIC_URL", "http://localhost:8787").rstrip("/")
+
+class _StaticTokenVerifier:
+    def __init__(self, tok: str):
+        self._tok = tok
+    async def verify_token(self, token: str):
+        if secrets.compare_digest(token, self._tok):
+            return AccessToken(token=token, client_id="static-token", scopes=[])
+        return None
+
+mcp = MCPServer("amazon-in", version="0.1.0",
+                auth=(AuthSettings(issuer_url=_PUBLIC_URL, resource_server_url=_PUBLIC_URL,
+                                   validate_token_resource=False) if _HTTP_TOKEN else None),
+                token_verifier=(_StaticTokenVerifier(_HTTP_TOKEN) if _HTTP_TOKEN else None))
 
 # ---------------------------------------------------------------- hardening helpers
 _NET = threading.Lock()   # ponytail: global lock, per-session locks if throughput matters
@@ -465,9 +485,13 @@ def main():
         def arg(flag, default):
             return argv[argv.index(flag) + 1] if flag in argv else default
         from mcp.server.transport_security import TransportSecuritySettings
+        if not _HTTP_TOKEN:
+            print("[amazon-mcp] WARNING: AMAZON_MCP_TOKEN unset — HTTP endpoint is "
+                  "UNAUTHENTICATED. Set the env var to require `Authorization: Bearer <token>`.",
+                  file=sys.stderr)
         # tunneled/web-connector requests arrive with a public Host/Origin header;
         # DNS-rebinding protection is a localhost concern and --http is an explicit
-        # opt-in to exposure (the URL itself is unauthenticated — see README)
+        # opt-in to exposure — the URL itself is open unless AMAZON_MCP_TOKEN is set
         mcp.run(transport="streamable-http",
                 host=arg("--host", "127.0.0.1"),
                 port=int(arg("--port", "8787")),

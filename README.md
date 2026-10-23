@@ -118,7 +118,18 @@ cloudflared tunnel --url http://localhost:8787     # or: ngrok http 8787
 - **ChatGPT** → Settings → Connectors → Add custom connector → `https://<your-tunnel>/mcp`
 - **Claude Desktop** → Settings → Connectors → Add custom connector → same URL
 
-> ⚠ The HTTP endpoint is **unauthenticated** — anyone who has the URL can query through it. Use a tunnel you keep to yourself, or put it behind Cloudflare Access / a tunnel with authentication if you expose it beyond localhost.
+### Locking the endpoint (recommended whenever you tunnel)
+
+Set a token before starting — every request must then carry `Authorization: Bearer <token>` or it gets **HTTP 401**:
+
+```bash
+export AMAZON_MCP_TOKEN="$(openssl rand -hex 24)"
+export AMAZON_MCP_PUBLIC_URL="https://<your-tunnel>/mcp"   # optional, metadata only
+uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp --http
+```
+
+- In a connector UI that supports **custom HTTP headers**, add `Authorization: Bearer <token>`.
+- Token unset → the endpoint stays open (the server prints a startup warning). An obscure URL is not authentication: for anything beyond localhost, either set `AMAZON_MCP_TOKEN` or front the tunnel with Cloudflare Access / your tunnel provider's auth.
 
 ## Example
 
