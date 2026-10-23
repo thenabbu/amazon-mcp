@@ -374,7 +374,9 @@ def fetch_and_extract(session, asin, route="/dp/{}"):
     return out
 
 def _demo():
-    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "product_html")
+    fx = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      "tests", "fixtures")
+    d = os.path.join(fx, "product")
     lap = extract_product(open(os.path.join(d, "prod_laptop1.html"), encoding="utf-8").read())
     assert lap["title"].startswith("HP Victus"), lap["title"]
     assert lap["price_value"] == 108990.0, lap["price"]
@@ -394,8 +396,8 @@ def _demo():
     assert dog["error"] == "DOGPAGE", dog
     assert upscale("https://m.media-amazon.com/images/I/41q._SS40_.jpg").endswith("41q.jpg")
     assert upscale("https://m.media-amazon.com/images/I/41q._SS40_.jpg", "AC_SL1500").endswith("41q._AC_SL1500_.jpg")
-    # --- 2026 extraction-depth checks (fixtures = product_html + extra_html) ---
-    extra = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extra_html")
+    # --- 2026 extraction-depth checks (fixtures = tests/fixtures/product + extra) ---
+    extra = os.path.join(fx, "extra")
     bk = extract_product(open(os.path.join(d, "prod_book.html"), encoding="utf-8").read())
     assert bk["details"].get("Best Sellers Rank"), "BSR must land in details"
     assert bk["buying_options_count"] == 15, bk["buying_options_count"]   # 'New (15) from' aod link
