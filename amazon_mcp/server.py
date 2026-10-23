@@ -16,14 +16,44 @@ import product_extract as pe
 import reviews_fetch as rf
 import pincode_common as pc
 
-COOKIE_JAR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.json")
-mcp = MCPServer("amazon-in")
+COOKIE_JAR = os.path.join(str(pc.STATE_DIR), "cookies.json")
+mcp = MCPServer("amazon-in", version="0.1.0")
 
 # ---------------------------------------------------------------- hardening helpers
 _NET = threading.Lock()   # ponytail: global lock, per-session locks if throughput matters
+_CURRENT_PIN: "str | None" = None   # session's currently-bound delivery pin (set_pincode / override)
 _FIELD_CAP = 6000
 _SORTS = {"relevanceblender", "price-asc-rank", "price-desc-rank",
           "review-rank", "date-desc-rank", "exact-aware-popularity-rank"}
+
+def _match_brands(requested, avail):
+    """Match requested brand names against amazon's filter list for this query.
+    exact label > unique prefix > unique substring (OLD: bare substring matched
+    'Mi' to 'Xiaomi'). -> (p_123 id list, warnings for unmatched/ambiguous)"""
+    picked, warnings, seen = [], [], set()
+    for bn in requested:
+        q = bn.lower().strip()
+        exact = [b for b in avail if b["label"].lower() == q]
+        pref  = [b for b in avail if b["label"].lower().startswith(q)]
+        sub   = [b for b in avail if q in b["label"].lower()]
+        hit = exact[0] if exact else (pref[0] if len(pref) == 1 else (sub[0] if len(sub) == 1 else None))
+        if hit is None:
+            warnings.append(f"brand not found (or ambiguous) in amazon's filter list for this query: {bn!r} — its filter was NOT applied")
+            continue
+        tok = hit["token"].split(":", 1)[1]
+        if tok not in seen:
+            seen.add(tok)
+            picked.append(tok)
+    return picked, warnings
+
+def _apply_min_rating(products, min_rating):
+    """Exact threshold enforcement. amazon's upstream p_72 filter only means
+    '4 Stars & Up' (bucket-level) — never the precise value the caller asked for.
+    -> (kept, excluded_count) — unrated products cannot satisfy a threshold, so they drop."""
+    if not min_rating:
+        return products, 0
+    kept = [p for p in products if p.get("rating") is not None and p["rating"] >= min_rating]
+    return kept, len(products) - len(kept)
 
 def _err(error, **kw):
     return json.dumps({"error": error, **kw}, ensure_ascii=False, default=str)
@@ -128,6 +158,7 @@ def az():
 
 def _save_jar():
     try:
+        os.makedirs(os.path.dirname(COOKIE_JAR), exist_ok=True)
         json.dump(dict(az().s.cookies.items()), open(COOKIE_JAR, "w"), indent=1)
     except Exception:
         pass
@@ -168,6 +199,12 @@ def search_products(query: str, page: int = 1, category: str = "",
         return _err("INVALID_PARAM", param="min_rating", detail="min_rating must be 0-5")
     if sort and sort not in _SORTS:
         return _err("INVALID_PARAM", param="sort", detail=f"unknown sort {sort!r}", allowed=sorted(_SORTS))
+    if condition not in ("", "New"):
+        # only amazon's New-condition token is verified; silently accepting
+        # 'Used'/'Refurbished' would apply NO filter (review P3 silent no-op)
+        return _err("INVALID_PARAM", param="condition",
+                    detail=f"unknown condition {condition!r} — only '' (any) or 'New' have a verified amazon.in filter",
+                    allowed=["", "New"])
     if not isinstance(max_pages, int) or max_pages < 1:
         return _err("INVALID_PARAM", param="max_pages", detail="max_pages must be an integer >= 1")
     if brands is not None and (not isinstance(brands, list)
@@ -200,9 +237,9 @@ def search_products(query: str, page: int = 1, category: str = "",
     total, source = sp.parse_total(r.text)
     # brand token discovery -> token-map filter (only known after first fetch)
     brands_avail = sp.parse_filters(r.text).get("p_123", [])
+    brand_warnings = []
     if brands:
-        brand_ids = [b["token"].split(":", 1)[1] for b in brands_avail
-                     if any(bn.lower() in b["label"].lower() for bn in brands)]
+        brand_ids, brand_warnings = _match_brands(brands, brands_avail)
         if brand_ids:
             params["rh"] = (params.get("rh", "") + "," if "rh" in params else "") + "p_123:" + ",".join(brand_ids)
             r = fetch(page)
@@ -224,10 +261,21 @@ def search_products(query: str, page: int = 1, category: str = "",
         merge(r2.text)
         if len(seen) == before:
             break   # amazon served the same tiles again — stop instead of grinding to max_pages
+    # exact min_rating enforcement + honest filter/warning reporting (review P3/P4)
+    products, filtered_out = _apply_min_rating(list(seen.values()), min_rating)
+    warnings = list(brand_warnings)
+    if filtered_out:
+        warnings.append(f"min_rating {min_rating}: excluded {filtered_out} of {len(seen)} products after an exact post-filter "
+                        "(amazon's own upstream filter is bucket-level only)")
+    no_price = sum(1 for p in products if p.get("price") in (None, "", 0))
+    if no_price:
+        warnings.append(f"PRICE_UNAVAILABLE: {no_price}/{len(products)} products expose no parseable price on this page")
     return json.dumps({
         "total": total, "source": source, "page": page, "pages_fetched": pages_fetched,
-        "count_this_page": first_count, "count": len(seen),
-        "products": list(seen.values()), "available_filter_tokens": brands_avail
+        "count_this_page": first_count, "count": len(products),
+        "products": products, "available_filter_tokens": brands_avail,
+        "filters_applied": {k: v for k, v in params.items() if k not in ("k", "page")},
+        "filtered_out": filtered_out, "warnings": warnings
     }, ensure_ascii=False, default=str)
 
 @mcp.tool()
@@ -267,6 +315,9 @@ def get_product(asin: str) -> str:
     out["description"] = _clip(out.get("description"))
     out["aplus"] = _clip(out.get("aplus"))
     out["http_status"] = r.status_code
+    # honest per-field reporting: a missing price is NOT a successful full extraction
+    out["warnings"] = (["PRICE_UNAVAILABLE: no parseable price rendered on this page"]
+                       if out.get("price_value") is None else [])
     return json.dumps(out, ensure_ascii=False, default=str)
 
 @mcp.tool()
@@ -305,6 +356,10 @@ def get_all_reviews(asin: str, page: int = 1, sort_by: str = "", filter_by_star:
     bad = _validate_page(page)
     if bad:
         return bad
+    # per-input normalisation like every other tool: users paste URLs/garbage
+    a, bad = _need_asin(asin)
+    if bad:
+        return bad
     s = az()
     _relaxed_polite()
     params = {"pageNumber": str(page)}
@@ -312,52 +367,72 @@ def get_all_reviews(asin: str, page: int = 1, sort_by: str = "", filter_by_star:
     if filter_by_star: params["filterByStar"] = filter_by_star
     if reviewer_type:  params["reviewerType"] = reviewer_type
     if format_type:    params["formatType"] = format_type
-    r = _get(s, f"/product-reviews/{asin}/", params)
+    r = _get(s, f"/product-reviews/{a}/", params)
     gated = "/ap/signin" in str(r.url) or "Sign in or create account" in r.text[:60000]
     if gated:
-        return json.dumps({"gated": True, "signin_url": str(r.url)[:250], "asin": asin, "params": params,
+        return json.dumps({"gated": True, "signin_url": str(r.url)[:250], "asin": a, "params": params,
                            "note": "Login required for paginated review list. Use get_reviews(asin) for no-login top reviews."})
     return json.dumps({"gated": False, "reviews": _clip_reviews(rf.parse_reviews(r.text)),
                        "ratings": rf.parse_ratings(r.text)}, ensure_ascii=False, default=str)
 
-@mcp.tool()
-@_guarded
-def set_pincode(pincode: str) -> str:
-    """Set delivery pincode (6-digit Indian PIN, first digit 1-9). Returns success + readback: {"success": bool, "pincode":..., "city":..., "state":..., "bound_pin":...}. Invalid pincodes ("12345", "abcdef", "000000") return {"error": ...} before any network request. All subsequent product/search calls in this session are personalized to the pincode."""
-    if not pc.valid_pincode(pincode):
-        return json.dumps({"error": f"invalid pincode {pincode!r}",
-                           "hint": "expected 6 digits, first digit 1-9 (e.g. 400001) — no request sent"})
-    s = az()
-    ubid = pc.ensure_ubid(s)
+def _bind_pin(s, pin):
+    """Bind session location to `pin`; returns the set_pincode-style result dict.
+    Always runs under _NET (called from a guarded tool) so bind+fetch sequences
+    in one tool call are atomic — the shared-session pincode race dies here."""
+    pc.ensure_ubid(s)
     _relaxed_polite()
     pg = _get(s, "/s?k=laptop")
     csrf = pc.scrape_csrf(pg.text)
     if not csrf:
         return json.dumps({"error": "csrf not found", "hint": "page fetch may have failed"})
     _relaxed_polite()
-    r = pc.set_pincode(s, pincode, csrf)
+    r = pc.set_pincode(s, pin, csrf)
     j = r.json() if "json" in (r.headers.get("content-type") or "") else {}
     _relaxed_polite()
     lab = pc.get_location_label(s, csrf)
     _save_jar()
-    if str(lab.get("selectedDestination", {}).get("destinationValue")) == str(pincode):
-        return json.dumps({"success": True, "pincode": pincode,
+    if str(lab.get("selectedDestination", {}).get("destinationValue")) == str(pin):
+        return json.dumps({"success": True, "pincode": pin,
                            "city": j.get("address", {}).get("city"), "state": j.get("address", {}).get("state"),
                            "bound_pin": lab.get("selectedDestination", {}).get("destinationValue")})
     return json.dumps({"success": False, "response": j, "label": lab.get("selectedDestination")})
 
 @mcp.tool()
 @_guarded
-def get_delivery_info(asin: str) -> str:
-    """Get delivery estimate for an ASIN in current session's pincode context. Returns {asin:..., bound_pin:..., glow: [...], dp_zip:..., delivery_info: [...]}"""
+def set_pincode(pincode: str) -> str:
+    """Set delivery pincode (6-digit Indian PIN, first digit 1-9). Returns success + readback: {"success": bool, "pincode":..., "city":..., "state":..., "bound_pin":...}. Invalid pincodes ("12345", "abcdef", "000000") return {"error": ...} before any network request. All subsequent product/search calls in this session are personalized to the pincode."""
+    global _CURRENT_PIN
+    if not pc.valid_pincode(pincode):
+        return json.dumps({"error": f"invalid pincode {pincode!r}",
+                           "hint": "expected 6 digits, first digit 1-9 (e.g. 400001) — no request sent"})
+    res = _bind_pin(az(), pincode)
+    j = json.loads(res)
+    if j.get("success"):
+        _CURRENT_PIN = pincode
+    return res
+
+@mcp.tool()
+@_guarded
+def get_delivery_info(asin: str, pincode: str | None = None) -> str:
+    """Get delivery estimate for an ASIN. pincode: optional 6-digit override — bound and fetched atomically inside this call, so concurrent set_pincode() sessions can never cross-contaminate it (race-free); an override also becomes the session's current pin context. Returns {asin:..., bound_pin:..., glow: [...], dp_zip:..., delivery_info: [...]}"""
+    global _CURRENT_PIN
     a, bad = _need_asin(asin)
     if bad:
         return bad
     s = az()
+    if pincode is not None and pincode != _CURRENT_PIN:
+        if not pc.valid_pincode(pincode):
+            return _err("INVALID_PARAM", param="pincode",
+                        detail=f"invalid pincode {pincode!r} — expected 6 digits, first digit 1-9")
+        res = json.loads(_bind_pin(s, pincode))
+        if not res.get("success"):
+            return json.dumps({"error": "PINBIND_FAILED", "requested_pin": pincode, **res}, ensure_ascii=False, default=str)
+        _CURRENT_PIN = pincode
     _relaxed_polite()
     r = _get(s, f"/dp/{a}")
     return json.dumps({
         "asin": a,
+        "bound_pin_context": _CURRENT_PIN,
         "glow": pc.glow_location(r.text),
         "dp_zip": pc.dp_zipcode(r.text),
         "delivery_info": pc.delivery_info(r.text)
