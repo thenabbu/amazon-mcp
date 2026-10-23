@@ -4,9 +4,9 @@
 [![MCP](https://img.shields.io/badge/MCP-stdio-green)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
-An MCP server for amazon.in — search, filter, read product pages, reviews, and pincode-based delivery info. No API key, no login, no paid scraper service.
+An MCP server for amazon.in — search, filter, read product pages, reviews, and pincode-based delivery info. **Zero configuration**: no API key, no login, no account, no environment variables.
 
-**Works with:** any MCP client (Claude Desktop, Cursor, Hermes, etc.) · **Marketplace:** amazon.in · **Python:** 3.11+
+**Works with:** any MCP client (Claude Desktop, Cursor, Codex, Hermes, etc.) · **Marketplace:** amazon.in · **Python:** 3.11+
 
 ## Tools
 
@@ -23,6 +23,14 @@ An MCP server for amazon.in — search, filter, read product pages, reviews, and
 | `demo` | Offline self-check — runs parsers against bundled fixtures, no network |
 
 ## Quickstart
+
+**One command, no clone** (needs [`uv`](https://docs.astral.sh/uv/)):
+
+```bash
+uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
+```
+
+Or install locally (needs Python 3.11+):
 
 ```bash
 git clone https://github.com/thenabbu/amazon-mcp.git
@@ -42,26 +50,49 @@ Self-check without network:
 {"search": {"total": 65756, "items": 22, "ok": true}, "product": {"title": "HP Victus 15 Smartchoice...", "price": "₹1,08,990.00", "variants": 8, "dogpage": "DOGPAGE", "ok": true}, "reviews": {"dp1": {"n": 13, "avg": 4.0, "total": 95266}, "dp2": {"n": 8, "avg": 3.4, "total": 42}, "ok": true}, "pincode": {"validation": {"110001": true, "400001": true, "12345": false, "abcdef": false, "000000": false}}}
 ```
 
-### MCP client config
+### Connect it to your MCP client
 
-Claude Desktop / Cursor (`claude_desktop_config.json` or `.cursor/mcp.json`):
+**Any client that speaks stdio** (Claude Desktop, Cursor, Cline, Windsurf, VS Code, Goose, …) — add via your client's MCP settings UI or config file:
 
 ```json
 {
   "mcpServers": {
     "amazon": {
-      "command": "/path/to/amazon-mcp/.venv/bin/python",
-      "args": ["/path/to/amazon-mcp/amazon_mcp/server.py"]
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/thenabbu/amazon-mcp", "amazon-mcp"]
     }
   }
 }
 ```
 
-Hermes:
+Prefer a local checkout instead? Swap the command:
+
+```json
+{
+  "mcpServers": {
+    "amazon": {
+      "command": "/path/to/amazon-mcp/.venv/bin/amazon-mcp"
+    }
+  }
+}
+```
+
+**CLI clients** — one-liners:
 
 ```bash
-hermes mcp add amazon --command /path/to/.venv/bin/python --args /path/to/amazon-mcp/amazon_mcp/server.py --connect-timeout 90
+# Claude Code
+claude mcp add amazon uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
+
+# Codex
+codex mcp add amazon -- uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
+
+# Hermes
+hermes mcp add amazon --command uvx --connect-timeout 90 --args --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
 ```
+
+Windows note: for `uvx`-based entries run it directly (no `cmd /c` wrapper needed); if your client doesn't ship `uvx` on PATH, use `command: "cmd", args: ["/c", "uvx", "--from", "git+https://github.com/thenabbu/amazon-mcp", "amazon-mcp"]`.
+
+Restart your client after editing, then look for the 9 `amazon` tools in its tool picker.
 
 ## Example
 
@@ -86,6 +117,14 @@ avg 4.0, 744 ratings, histogram 5*54% 4*21% 3*8% 2*3% 1*14%
 8 top reviews, e.g. "Battery lasts me 2 days" — Aditi, 16 October 2026 (verified purchase)
 ```
 
+## Example prompts
+
+- "Search amazon.in for wireless earbuds under ₹2,000, sort by price, show the top 5 with ratings"
+- "I'm in Delhi (110000). How long would delivery take for ASIN B0G2B2QVLL?"
+- "Pull the full spec sheet and all reviews for this phone: <paste any amazon.in product URL>"
+- "Compare the 3 cheapest 5G phones from search page 2 — storage, battery, review sentiment"
+- "Find laptops with 4+ star ratings, discover which brands exist for 'gaming laptop', and filter to ASUS + Lenovo"
+
 ## How it survives Amazon's bot wall
 
 Amazon sits behind Akamai Bot Manager. Plain HTTP clients get a 503 or a proof-of-work challenge page. The server uses `curl_cffi` (real browser TLS fingerprint) and solves both known challenges automatically:
@@ -102,6 +141,12 @@ Plus polite pacing (1.5–3 s between requests) so the server stays under the ra
 - **Prime badge / Climate Pledge** are not rendered on amazon.in search pages — nothing to extract.
 - A+ content is sometimes an empty header when Amazon lazy-loads the rest.
 - Rate-limit yourself: heavy bursts will trigger challenges (the server auto-solves, but don't hammer).
+
+## Troubleshooting
+
+- **Tools don't show up in the client** — restart the client after editing its MCP config; the server only connects on launch. Check `uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp` runs standalone first.
+- **Occasional "challenge" or slow first request** — Amazon's bot checks (proof-of-work/captcha) are solved automatically; the first call also builds a session, so expect ~3-8 s. If requests start failing repeatedly, you're fetching too fast — the built-in 1.5-3 s pacing should prevent this.
+- **`demo` fails after editing parsers** — `--demo` runs the parsers against bundled fixtures with no network; a failure means a parser change broke an assertion.
 
 ## Development
 
