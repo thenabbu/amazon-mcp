@@ -1,12 +1,12 @@
 # Amazon MCP
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![MCP](https://img.shields.io/badge/MCP-stdio-green)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-stdio%20%7C%20http-green)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
-An MCP server for amazon.in — search, filter, read product pages, reviews, and pincode-based delivery info. **Zero configuration**: no API key, no login, no account, no environment variables.
+An MCP server for **amazon.in** — search with full filters, read product pages, reviews, and pincode-based delivery info. **Zero configuration**: no API key, no login, no account, no environment variables.
 
-**Works with:** any MCP client (Claude Desktop, Cursor, Codex, Hermes, etc.) · **Marketplace:** amazon.in · **Python:** 3.11+
+Works over **stdio** with any local agent (Claude, Codex, Cursor, Gemini, …) and over **HTTP** for web connectors (ChatGPT, Claude.ai).
 
 ## Tools
 
@@ -20,11 +20,11 @@ An MCP server for amazon.in — search, filter, read product pages, reviews, and
 | `set_pincode` | Set a 6-digit delivery PIN. Every later call in the session is personalized to it. Validates input before any network call. |
 | `get_delivery_info` | Delivery estimate for a product at the current pincode ("FREE delivery Friday, 23 October" or non-deliverable) |
 | `get_suggestions` | Related search suggestions for a query |
-| `demo` | Offline self-check — runs parsers against bundled fixtures, no network |
+| `demo` | Offline self-check — runs the parsers against bundled sample pages, no network |
 
-## Quickstart
+## Install
 
-**One command, no clone** (needs [`uv`](https://docs.astral.sh/uv/)):
+One command, no clone (needs [`uv`](https://docs.astral.sh/uv/)):
 
 ```bash
 uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
@@ -40,19 +40,21 @@ python3 -m venv .venv
 .venv/bin/amazon-mcp          # starts on stdio
 ```
 
-Self-check without network:
+Verify the install (offline, no network):
 
 ```bash
-.venv/bin/python amazon_mcp/server.py --demo
+.venv/bin/amazon-mcp --demo
 ```
 
 ```json
 {"search": {"total": 65756, "items": 22, "ok": true}, "product": {"title": "HP Victus 15 Smartchoice...", "price": "₹1,08,990.00", "variants": 8, "dogpage": "DOGPAGE", "ok": true}, "reviews": {"dp1": {"n": 13, "avg": 4.0, "total": 95266}, "dp2": {"n": 8, "avg": 3.4, "total": 42}, "ok": true}, "pincode": {"validation": {"110001": true, "400001": true, "12345": false, "abcdef": false, "000000": false}}}
 ```
 
-### Connect it to your MCP client
+## Connect it (stdio — local agents)
 
-**Any client that speaks stdio** (Claude Desktop, Cursor, Cline, Windsurf, VS Code, Goose, …) — add via your client's MCP settings UI or config file:
+The same entry works in every stdio client. Replace `<URL>` with `git+https://github.com/thenabbu/amazon-mcp`.
+
+**Claude Desktop / Cline / Windsurf / Gemini CLI** — add to their MCP config file (`claude_desktop_config.json`, `cline_mcp_settings.json`, `.codeium/windsurf/mcp_config.json`, `~/.gemini/settings.json`):
 
 ```json
 {
@@ -65,19 +67,17 @@ Self-check without network:
 }
 ```
 
-Prefer a local checkout instead? Swap the command:
+**VS Code / Copilot** — `.vscode/mcp.json`:
 
 ```json
 {
-  "mcpServers": {
-    "amazon": {
-      "command": "/path/to/amazon-mcp/.venv/bin/amazon-mcp"
-    }
+  "servers": {
+    "amazon": { "type": "stdio", "command": "uvx", "args": ["--from", "git+https://github.com/thenabbu/amazon-mcp", "amazon-mcp"] }
   }
 }
 ```
 
-**CLI clients** — one-liners:
+**CLI one-liners:**
 
 ```bash
 # Claude Code
@@ -90,13 +90,40 @@ codex mcp add amazon -- uvx --from git+https://github.com/thenabbu/amazon-mcp am
 hermes mcp add amazon --command uvx --connect-timeout 90 --args --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
 ```
 
-Windows note: for `uvx`-based entries run it directly (no `cmd /c` wrapper needed); if your client doesn't ship `uvx` on PATH, use `command: "cmd", args: ["/c", "uvx", "--from", "git+https://github.com/thenabbu/amazon-mcp", "amazon-mcp"]`.
+**Cursor / Goose** — Settings → MCP (Cursor) or Extensions → Add custom extension (Goose): command `uvx`, args `--from git+https://github.com/thenabbu/amazon-mcp amazon-mcp`.
 
-Restart your client after editing, then look for the 9 `amazon` tools in its tool picker.
+Prefer a local checkout? Swap the command for `/path/to/amazon-mcp/.venv/bin/amazon-mcp`.
+
+Windows: if your client doesn't put `uvx` on PATH, wrap it: `"command": "cmd", "args": ["/c", "uvx", "--from", "git+https://github.com/thenabbu/amazon-mcp", "amazon-mcp"]`.
+
+Restart the client after editing — then look for the 9 `amazon` tools in its tool picker.
+
+## Web connectors (ChatGPT, Claude.ai)
+
+Web connectors need an **HTTP** endpoint instead of stdio. The server speaks Streamable HTTP on `/mcp`:
+
+```bash
+uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp --http        # 127.0.0.1:8787
+uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp --http --port 9000
+```
+
+**Local (ChatGPT Developer mode):** ChatGPT → Settings → Connectors → enable Developer mode → add `http://localhost:8787/mcp`.
+
+**Public URL (any plan, both Claude.ai and ChatGPT):** expose the port with a tunnel, then add the URL as a custom connector:
+
+```bash
+cloudflared tunnel --url http://localhost:8787     # or: ngrok http 8787
+```
+
+- **Claude.ai** → Settings → Connectors → Add custom connector → `https://<your-tunnel>/mcp`
+- **ChatGPT** → Settings → Connectors → Add custom connector → `https://<your-tunnel>/mcp`
+- **Claude Desktop** → Settings → Connectors → Add custom connector → same URL
+
+> ⚠ The HTTP endpoint is **unauthenticated** — anyone who has the URL can query through it. Use a tunnel you keep to yourself, or put it behind Cloudflare Access / a tunnel with authentication if you expose it beyond localhost.
 
 ## Example
 
-`get_product` on a phone URL:
+`get_product` on a product URL:
 
 ```
 title:    Redmi 15C 5G Prime Edition Dusk Purple 6GB + 128GB | Massive 6000mAh Battery | ...
@@ -132,7 +159,7 @@ Amazon sits behind Akamai Bot Manager. Plain HTTP clients get a 503 or a proof-o
 - the `bm-verify` interstitial (compute the small proof-of-work, POST `/_sec/verify`, retry)
 - the transient "Continue shopping" captcha form (single GET, retry)
 
-Plus polite pacing (1.5–3 s between requests) so the server stays under the radar.
+Plus polite pacing (2.5–4.5 s between requests) and a shared cooldown: if amazon rate-limits you, tools return a structured `RATE_LIMITED` error with a `retry_after` instead of hammering the wall.
 
 ## Limits (honest)
 
@@ -140,35 +167,26 @@ Plus polite pacing (1.5–3 s between requests) so the server stays under the ra
 - **Search results cap at ~100 pages** (Amazon's own ceiling; deeper pages return empty).
 - **Prime badge / Climate Pledge** are not rendered on amazon.in search pages — nothing to extract.
 - A+ content is sometimes an empty header when Amazon lazy-loads the rest.
-- Rate-limit yourself: heavy bursts will trigger challenges (the server auto-solves, but don't hammer).
+- Heavy bursts trigger rate limits (handled gracefully — see above — but don't hammer).
 
 ## Troubleshooting
 
 - **Tools don't show up in the client** — restart the client after editing its MCP config; the server only connects on launch. Check `uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp` runs standalone first.
-- **Occasional "challenge" or slow first request** — Amazon's bot checks (proof-of-work/captcha) are solved automatically; the first call also builds a session, so expect ~3-8 s. If requests start failing repeatedly, you're fetching too fast — the built-in 1.5-3 s pacing should prevent this.
-- **`demo` fails after editing parsers** — `--demo` runs the parsers against bundled fixtures with no network; a failure means a parser change broke an assertion.
-
-## Development
-
-```bash
-.venv/bin/python amazon_mcp/server.py --demo     # offline parser self-check
-python test_hardening.py                          # input-validation asserts
-```
-
-Parser modules (`search_parse`, `product_extract`, `reviews_fetch`, `pincode_common`) are pure functions over saved HTML — fixtures under `amazon_mcp/`, so the demo runs offline.
+- **`RATE_LIMITED` errors** — amazon's robot-check wall; wait ~45–60 s and retry. It usually clears itself; the server already backs off for you.
+- **Slow first request** — the first call builds a session and may solve a challenge (~3–8 s).
+- **`--demo` fails** — the bundled offline self-check found a parser regression; an update of the repo likely broke an assertion.
 
 ## Project layout
 
 ```
 amazon_mcp/
-  server.py           # MCP tool layer (9 tools, input validation, thread-safe)
+  server.py           # MCP tool layer (9 tools, input validation, thread-safe, stdio + http)
   amz_lib.py          # HTTP session: TLS fingerprinting + Akamai challenge solvers
   search_parse.py     # search-results parser (pure functions over HTML)
   product_extract.py  # product-page parser
   reviews_fetch.py    # reviews + ratings parser
   pincode_common.py   # delivery-pincode binding
-  *_html/ probe_cache/  # saved page fixtures used by the offline self-check
-test_hardening.py     # input-validation + resilience tests (no network)
+  */ fixtures         # saved amazon.in pages used by the offline demo self-check
 ```
 
 ## License

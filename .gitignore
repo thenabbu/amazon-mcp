@@ -6,3 +6,4 @@ __pycache__/
 amazon_mcp/cookies.json
 .venv/
 amazon_mcp.egg-info/
+test_hardening.py

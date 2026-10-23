@@ -422,11 +422,32 @@ def demo() -> str:
     return json.dumps(out, ensure_ascii=False, default=str)
 
 def main():
-    """Console-script entry point (amazon-mcp)."""
+    """Console-script entry point.
+
+      amazon-mcp                 stdio (local agent configs)
+      amazon-mcp --http          streamable-http on 127.0.0.1:8787 (web connectors, path /mcp)
+      amazon-mcp --http --port 9000 --host 0.0.0.0
+      amazon-mcp --demo          offline self-check, no network
+    """
+    if "--demo" in sys.argv:
+        print(demo())
+        return
+    if "--http" in sys.argv:
+        argv = sys.argv[1:]
+        def arg(flag, default):
+            return argv[argv.index(flag) + 1] if flag in argv else default
+        from mcp.server.transport_security import TransportSecuritySettings
+        # tunneled/web-connector requests arrive with a public Host/Origin header;
+        # DNS-rebinding protection is a localhost concern and --http is an explicit
+        # opt-in to exposure (the URL itself is unauthenticated — see README)
+        mcp.run(transport="streamable-http",
+                host=arg("--host", "127.0.0.1"),
+                port=int(arg("--port", "8787")),
+                stateless_http=True,
+                transport_security=TransportSecuritySettings(
+                    enable_dns_rebinding_protection=False))
+        return
     mcp.run(transport="stdio")
 
 if __name__ == "__main__":
-    if "--demo" in sys.argv:
-        print(demo())
-    else:
-        mcp.run(transport="stdio")
+    main()
