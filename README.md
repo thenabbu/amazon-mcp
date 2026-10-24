@@ -166,6 +166,25 @@ avg 4.0, 744 ratings, histogram 5*54% 4*21% 3*8% 2*3% 1*14%
 8 top reviews, e.g. "Battery lasts me 2 days" — Aditi, 16 October 2026 (verified purchase)
 ```
 
+`get_price_history` over a 90-day window:
+
+```
+94 daily points: 2025-12-11 → 2026-10-24 (pricehistory.app, cache hit 38 min old)
+low:     ₹13,249 on 21 Feb 2026     high: ₹21,578 on 6 Aug 2026
+avg:     ₹17,585                    now:  ₹17,999 (MRP ₹31,999)
+verdict: Better to wait — transparent formula, no hidden weights
+```
+
+`compare_products` on two earbuds, with delivery to pincode 400001:
+
+```
+                  price    rating    stock       delivery to 400001
+Kratos  B0GCMGNVJX  ₹529   3.8 (3845)  In stock   FREE delivery Tuesday, 27 October
+pTron   B0D78XSMSM  ₹599   4.0 (3510)  In stock   FREE delivery Tuesday, 27 October
+
+lowest price: B0GCMGNVJX   highest rated: B0D78XSMSM   missing fields: none
+```
+
 ## Example prompts
 
 - "Search amazon.in for wireless earbuds under ₹2,000, sort by price, show the top 5 with ratings"
