@@ -530,27 +530,37 @@ def test_price_history():
     tmp = tempfile.mkdtemp(prefix="amzhist_")
     orig_state = server.pc.STATE_DIR
     server.pc.STATE_DIR = pathlib.Path(tmp)
+    # external source disabled -> this test stays fully offline (new local/external contract)
+    real_env = os.environ.get("AMAZON_MCP_DISABLE_PH")
+    os.environ["AMAZON_MCP_DISABLE_PH"] = "1"
     try:
         h = json.loads(server.get_price_history("B0HISTTEST"))
-        assert h["observations"] == 0 and "no local observations" in h["note"], h
+        assert h["local"]["observations"] == 0 and "start recording" in h["local"]["note"], h
+        assert h["external"] is None and h["external_status"] == "disabled", h["external_status"]
+        assert "two independent sources, not merged" in h["note"], h["note"]
         server._record_price("B0HISTTEST", 100.0, 120.0, "In stock")
         time.sleep(1.1)
         server._record_price("B0HISTTEST", 90.0, 120.0, "In stock")
         time.sleep(1.1)
         server._record_price("B0HISTTEST", 110.0, None, "In stock")
         h = json.loads(server.get_price_history("B0HISTTEST", days=1))
-        assert h["observations"] == 3, h
-        assert h["min"] == 90.0 and h["max"] == 110.0 and h["median"] == 100.0, h
-        assert h["latest"] == 110.0 and h["days_covered"] >= 1, h
-        assert "3 local observation" in h["note"], h["note"]      # honest observation count
-        server._record_price("B0HISTTEST", None)                  # no-price = no-op
-        assert json.loads(server.get_price_history("B0HISTTEST"))["observations"] == 3
+        loc = h["local"]
+        assert loc["observations"] == 3, h
+        assert loc["min"] == 90.0 and loc["max"] == 110.0 and loc["median"] == 100.0, loc
+        assert loc["latest"] == 110.0 and loc["days_covered"] >= 1, loc
+        assert "3 local observation" in loc["note"], loc["note"]      # honest observation count
+        server._record_price("B0HISTTEST", None)                      # no-price = no-op
+        assert json.loads(server.get_price_history("B0HISTTEST"))["local"]["observations"] == 3
         r = json.loads(server.get_price_history("bad asin!!"))
         assert r.get("error") == "INVALID_ASIN", r
         r = json.loads(server.get_price_history("B0HISTTEST", days=0))
         assert r.get("error") == "INVALID_PARAM", r
     finally:
         server.pc.STATE_DIR = orig_state
+        if real_env is None:
+            os.environ.pop("AMAZON_MCP_DISABLE_PH", None)
+        else:
+            os.environ["AMAZON_MCP_DISABLE_PH"] = real_env
     print("PASS test_price_history")
 
 
