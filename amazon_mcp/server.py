@@ -17,6 +17,7 @@ import search_parse as sp
 import product_extract as pe
 import reviews_fetch as rf
 import pincode_common as pc
+import pricehistory as ph
 
 COOKIE_JAR = os.path.join(str(pc.STATE_DIR), "cookies.json")
 
@@ -34,7 +35,7 @@ class _StaticTokenVerifier:
             return AccessToken(token=token, client_id="static-token", scopes=[])
         return None
 
-mcp = MCPServer("amazon-in", version="0.1.0",
+mcp = MCPServer("amazon-in", version="0.2.0",
                 auth=(AuthSettings(issuer_url=_PUBLIC_URL, resource_server_url=_PUBLIC_URL,
                                    validate_token_resource=False) if _HTTP_TOKEN else None),
                 token_verifier=(_StaticTokenVerifier(_HTTP_TOKEN) if _HTTP_TOKEN else None))
@@ -571,7 +572,7 @@ def compare_products(asins: list[str], pincode: str | None = None) -> str:
 @mcp.tool()
 @_guarded
 def get_price_history(asin: str, days: int = 90) -> str:
-    """Local price-observation history for an ASIN (SQLite; get_product/compare record observations automatically). Returns {asin, window_days, observations, days_covered, first_observed, last_observed, min, max, median, latest, series[], note}. Honest scope: stats come from OUR OWN fetches only — the note states observation count, so 2 data points are never dressed up as a market history."""
+    """Price history from TWO clearly separated sources, never merged. local{} = our own SQLite observations (recorded automatically by get_product/compare_products): observations, days_covered, first/last, min, max, median, latest, series. external{} = pricehistory.app's archive (free, no account): daily series, all-time lowest_ever/highest_ever WITH dates, avg, current price+MRP+coupon, coupon-labelled offer_series, in-window sale calendar (Prime Day etc.), verdict {key: yes|okay|wait|skip, label, formula}. external_status: ok | not_tracked | degraded_meta_only (aggregates only, no series) | unavailable | cooldown | disabled. *_ever/avg are full-archive; series/offer_series/sales are clipped to `days`. External costs 2 cached calls per ASIN (code map kept forever, payload 6h); AMAZON_MCP_DISABLE_PH=1 turns it off. note always states both sources' counts — observations are never dressed up as a market history."""
     a, bad = _need_asin(asin)
     if bad:
         return bad
@@ -585,18 +586,33 @@ def get_price_history(asin: str, days: int = 90) -> str:
     except Exception as e:
         return _err("EXCEPTION", detail=f"price db: {e}")
     obs = [{"observed_at": r[0], "price": r[1], "list_price": r[2], "availability": r[3]} for r in rows]
-    if not obs:
-        return json.dumps({"asin": a, "window_days": days, "observations": 0,
-                           "note": "no local observations yet — call get_product to start recording"},
-                          ensure_ascii=False)
     prices = [o["price"] for o in obs]
-    return json.dumps({"asin": a, "window_days": days, "observations": len(obs),
-                       "days_covered": len({o["observed_at"][:10] for o in obs}),
-                       "first_observed": obs[0]["observed_at"], "last_observed": obs[-1]["observed_at"],
-                       "min": min(prices), "max": max(prices),
-                       "median": statistics.median(prices), "latest": prices[-1], "series": obs,
-                       "note": f"derived from {len(obs)} local observation(s) since {obs[0]['observed_at'][:10]} — our own fetches only, not an exchange-wide history"},
-                      ensure_ascii=False)
+    local = {
+        "observations": len(obs),
+        "days_covered": len({o["observed_at"][:10] for o in obs}) if obs else 0,
+        "first_observed": obs[0]["observed_at"] if obs else None,
+        "last_observed": obs[-1]["observed_at"] if obs else None,
+        "min": min(prices) if prices else None,
+        "max": max(prices) if prices else None,
+        "median": statistics.median(prices) if prices else None,
+        "latest": prices[-1] if prices else None,
+        "series": obs,
+        "note": (f"{len(obs)} local observation(s)" + (f" since {obs[0]['observed_at'][:10]}" if obs else "")
+                 + (" — our own fetches only" if obs else " — fetch a product with get_product to start recording")),
+    }
+    ext, status = None, "disabled"
+    try:
+        ext, status = ph.get(a, days)
+    except Exception as e:
+        ext, status = None, f"unavailable ({type(e).__name__})"
+    src = (f"external = pricehistory.app archive ({ext['points']} daily pts, updated {ext.get('updated_at')})"
+           if ext and status == "ok" else
+           f"external = pricehistory.app ({status})")
+    note = (f"local = our own fetches ({len(obs)} obs"
+            + (f" since {obs[0]['observed_at'][:10]}" if obs else "") + f"); {src} — two independent sources, not merged")
+    return json.dumps({"asin": a, "window_days": days, "local": local,
+                       "external": ext, "external_status": status, "note": note},
+                      ensure_ascii=False, default=str)
 
 def main():
     """Console-script entry point.
