@@ -21,7 +21,7 @@ _FORMULA = ("price<=lowest*1.02 -> yes; <=avg(or (lowest+highest)/2) -> okay; "
             "<=avg+(highest-avg)*0.6 -> wait; else skip")
 _cooldown_until = 0.0
 _sess = None
-_payload_cache = {}   # code -> (fetched_at, payload)
+_payload_cache = {}   # L1 memory: code -> (fetched_at, payload); L2 = sqlite ph_cache (survives restarts)
 
 
 def disabled():
@@ -186,6 +186,42 @@ def _map_put(asin, code, name):
         pass
 
 
+def _cache_db():
+    pc.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(str(pc.STATE_DIR / "prices.db"))
+    c.execute("CREATE TABLE IF NOT EXISTS ph_cache (code TEXT PRIMARY KEY, fetched_at REAL, payload TEXT)")
+    return c
+
+
+def _cache_get(code):
+    """-> (payload, age_s) | None. Memory first, then sqlite — so repeat calls and
+    container restarts inside the 6h TTL never touch the network."""
+    now = time.time()
+    m = _payload_cache.get(code)
+    if m and now - m[0] < _TTL:
+        return m[1], int(now - m[0])
+    try:
+        with _cache_db() as c:
+            row = c.execute("SELECT fetched_at, payload FROM ph_cache WHERE code=?", (code,)).fetchone()
+        if row and now - row[0] < _TTL:
+            _payload_cache[code] = (row[0], json.loads(row[1]))
+            return _payload_cache[code][1], int(now - row[0])
+    except Exception:
+        pass
+    return None
+
+
+def _cache_put(code, payload):
+    at = time.time()
+    _payload_cache[code] = (at, payload)
+    try:
+        with _cache_db() as c:
+            c.execute("INSERT OR REPLACE INTO ph_cache VALUES (?,?,?)",
+                      (code, at, json.dumps(payload, ensure_ascii=False)))
+    except Exception:
+        pass   # persistence is best-effort; the memory layer still serves this process
+
+
 # ------------------------------------------------------------------------- normalize
 def normalize(payload, asin, days, product_name=None):
     """Payload -> external contract. *_ever/avg are FULL-ARCHIVE; series/offer_series/sales
@@ -269,9 +305,12 @@ def get(asin, days=90):
         code, name = s["code"], s.get("name")
         _map_put(asin, code, name)
         _polite()
-    cached = _payload_cache.get(code)
-    if cached and time.time() - cached[0] < _TTL:
-        return normalize(cached[1], asin, days, name), "ok"
+    hit = _cache_get(code)
+    if hit is not None:
+        payload, age = hit
+        ext = normalize(payload, asin, days, name)
+        ext["cache"] = {"hit": True, "age_s": age}
+        return ext, "ok"
     html = _page(code)
     if html is None:
         return None, "unavailable"
@@ -283,7 +322,11 @@ def get(asin, days=90):
         if payload is None:                  # fallback #3: meta aggregates only
             m = _meta_aggs(html)
             if m:
-                return _normalize_meta(m, asin, days, name), "degraded_meta_only"
+                ext = _normalize_meta(m, asin, days, name)
+                ext["cache"] = {"hit": False, "age_s": 0}
+                return ext, "degraded_meta_only"
             return None, "unavailable"
-    _payload_cache[code] = (time.time(), payload)
-    return normalize(payload, asin, days, name), "ok"
+    _cache_put(code, payload)
+    ext = normalize(payload, asin, days, name)
+    ext["cache"] = {"hit": False, "age_s": 0}
+    return ext, "ok"

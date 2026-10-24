@@ -151,10 +151,10 @@ def test_ph_pipeline_statuses():
         ph._search = lambda asin: None
         assert ph.get("B0HHHHHHHH")[1] == "unavailable"
 
-        # happy path: search -> page -> decode, then payload CACHE serves 2nd call (0 page hits)
+        # happy path: search -> page -> decode; cache MISS (age 0)
         def ok_search(asin):
             calls["search"] += 1
-            return {"status": True, "code": "G2N6dpw8", "name": "Redmi 15C"}
+            return {"status": True, "code": "X" + asin[2:9], "name": "T " + asin}   # unique code per asin
         def ok_page(code):
             calls["page"] += 1
             return _html("page_token.html")
@@ -162,15 +162,27 @@ def test_ph_pipeline_statuses():
         base = dict(calls)
         ext, st = ph.get("B0G2B2QVLL", days=30)
         assert st == "ok" and ext["points"] == 93 and ext["series"], (st, ext)
+        assert ext["cache"] == {"hit": False, "age_s": 0}, ext["cache"]
         assert calls["search"] == base["search"] + 1 and calls["page"] == 1, calls
+        # 2nd call: memory cache -> zero network
         ext2, st2 = ph.get("B0G2B2QVLL", days=30)
-        assert st2 == "ok" and calls["search"] == base["search"] + 1 and calls["page"] == 1, \
-            "TTL payload cache miss"
-
-        # map persistence: same asin AFTER cache expiry -> search never again (sqlite map)
+        assert st2 == "ok" and ext2["cache"]["hit"] is True, ext2.get("cache")
+        assert calls["search"] == base["search"] + 1 and calls["page"] == 1, "memory cache miss"
+        # "restart": memory cleared -> PERSISTENT sqlite cache still serves (0 network)
         ph._payload_cache.clear()
         ext3, st3 = ph.get("B0G2B2QVLL")
-        assert st3 == "ok" and calls["search"] == base["search"] + 1 and calls["page"] == 2, calls
+        assert st3 == "ok" and ext3["cache"]["hit"] is True and ext3["cache"]["age_s"] >= 0, \
+            ext3.get("cache")
+        assert calls["search"] == base["search"] + 1 and calls["page"] == 1, \
+            "sqlite persistence broken (restarted process would re-fetch)"
+        # expired row (>6h) -> fresh fetch; code map still saves the search call
+        import sqlite3 as _sq
+        with _sq.connect(str(ph.pc.STATE_DIR / "prices.db")) as _c:
+            _c.execute("UPDATE ph_cache SET fetched_at = ?", (time.time() - 7 * 3600,))
+        ph._payload_cache.clear()
+        ext4, st4 = ph.get("B0G2B2QVLL")
+        assert st4 == "ok" and ext4["cache"]["hit"] is False, ext4.get("cache")
+        assert calls["search"] == base["search"] + 1 and calls["page"] == 2, calls
 
         # fallback #3: page without payload/token -> meta aggregates
         ph._page = lambda code: "<meta name=\"description\" content=\"Lowest Price: ₹131.49 | "
@@ -205,38 +217,38 @@ def test_ph_pipeline_statuses():
     print("PASS test_ph_pipeline_statuses")
 
 
-# 7. tool merge: local + external stay SEPARATE, honest note, degrade keeps local
+# 7. tool: external-only contract, honest notes, degrade keeps the reason
 def test_ph_tool_merge():
     real_get = ph.get
-    real_state = server.pc.STATE_DIR
-    server.pc.STATE_DIR = pathlib.Path(tempfile.mkdtemp(prefix="phhist_"))
     try:
-        server._record_price("B0G2B2QVLL", 17999.0, 31999.0, "In stock")
-        # external ok
         stub = {"source": "pricehistory.app", "points": 93, "granularity": "daily",
-                "lowest_ever": {"price": 13249, "on": "2026-02-21"}}
+                "lowest_ever": {"price": 13249, "on": "2026-02-21"},
+                "cache": {"hit": False, "age_s": 0}}
         ph.get = lambda a, d=90: (dict(stub), "ok")
         r = json.loads(server.get_price_history("B0G2B2QVLL", days=30))
         assert r["external_status"] == "ok" and r["external"]["points"] == 93
-        assert r["local"]["observations"] == 1 and r["local"]["min"] == 17999.0
-        assert "two independent sources, not merged" in r["note"]
-        assert r["window_days"] == 30
-        # external unavailable -> local intact, status preserved
+        assert r["window_days"] == 30 and "93 daily pts" in r["note"], r["note"]
+        assert "cache miss" in r["note"], r["note"]
+        assert "local" not in r and "observations" not in r, "local block must be gone"
+        # cache hit surfaces age in the note
+        stub2 = dict(stub, cache={"hit": True, "age_s": 1234})
+        ph.get = lambda a, d=90: (stub2, "ok")
+        r = json.loads(server.get_price_history("B0G2B2QVLL"))
+        assert "cache hit 1234s old" in r["note"], r["note"]
+        # external unavailable -> reason preserved, no data, no fabrication
         ph.get = lambda a, d=90: (None, "unavailable")
         r = json.loads(server.get_price_history("B0G2B2QVLL"))
         assert r["external"] is None and r["external_status"] == "unavailable"
-        assert r["local"]["observations"] == 1, "local must survive external failure"
-        # module blows up -> caught, status says unavailable, local intact
+        assert "no data returned" in r["note"], r["note"]
+        # module blows up -> caught, status says unavailable
         ph.get = lambda a, d=90: (_ for _ in ()).throw(RuntimeError("boom"))
         r = json.loads(server.get_price_history("B0G2B2QVLL"))
         assert r["external"] is None and r["external_status"].startswith("unavailable")
-        assert r["local"]["observations"] == 1
         # invalid days still rejected pre-network
         r = json.loads(server.get_price_history("B0G2B2QVLL", days=0))
         assert r.get("error") == "INVALID_PARAM"
     finally:
         ph.get = real_get
-        server.pc.STATE_DIR = real_state
     print("PASS test_ph_tool_merge")
 
 

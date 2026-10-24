@@ -23,7 +23,7 @@ Works over **stdio** with any local agent (Claude, Codex, Cursor, Gemini, …) a
 | `get_suggestions` | Related search suggestions for a query |
 | `search_best_value` | Search, then rank by a **transparent** value score: `rating × log10(rating_count+10) ÷ √price` — deterministic, formula returned with every response, no hidden weights |
 | `compare_products` | Side-by-side compare of up to 5 ASINs: normalized rows + `lowest_price_asin` / `highest_rating_asin` / `missing_fields` (unknowns stay visible, never guessed). Optional `pincode` adds deliverability per product |
-| `get_price_history` | **Two clearly separated sources, never merged**: `local{}` = our own SQLite observations (recorded on every `get_product`/`compare_products` fetch) with counts stated up front, and `external{}` = pricehistory.app's free archive — daily series, all-time low/high **with dates**, average, current price+MRP+coupon, coupon-labelled offer series, in-window sale calendar (Prime Day…), and a transparent buy/hold `verdict` (their published 4-branch formula, no hidden weights). `external_status` reports `ok / not_tracked / degraded_meta_only / unavailable / cooldown / disabled`; any failure degrades to local-only. 2 cached calls per ASIN; `AMAZON_MCP_DISABLE_PH=1` opts out. |
+| `get_price_history` | Long-window price history from **pricehistory.app's free archive** (no account): daily series, all-time low/high **with dates**, average, current price+MRP+coupon, coupon-labelled offer series, in-window sale calendar (Prime Day…), and a transparent buy/hold `verdict` (their published 4-branch formula, no hidden weights). `external_status`: `ok / not_tracked / degraded_meta_only / unavailable / cooldown / disabled` — failures return the reason and **no data** instead of fake numbers. **Persistent sqlite cache** (6 h TTL — repeat calls and container restarts hit it; `external.cache` reports hit + age), ~2 network calls per ASIN per 6h; `AMAZON_MCP_DISABLE_PH=1` opts out. |
 
 ## Install
 
@@ -36,7 +36,7 @@ uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp
 **Pinned / stable** (recommended for configs you don't want moving under you — releases are tagged):
 
 ```bash
-uvx --from git+https://github.com/thenabbu/amazon-mcp@v0.2.0 amazon-mcp
+uvx --from git+https://github.com/thenabbu/amazon-mcp@v0.3.0 amazon-mcp
 ```
 
 The untagged command always runs the latest `master`; the tagged one installs exactly that release.
@@ -58,7 +58,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ```
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"amazon-in","version":"0.2.0"}}}
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"amazon-in","version":"0.3.0"}}}
 ```
 
 ## Connect it (stdio — local agents)
@@ -190,7 +190,7 @@ Plus polite pacing (2.5–4.5 s between requests) and a shared cooldown: if amaz
 - **Prime badge / Climate Pledge** are not rendered on amazon.in search pages — nothing to extract.
 - A+ content is sometimes an empty header when Amazon lazy-loads the rest.
 - Heavy bursts trigger rate limits (handled gracefully — see above — but don't hammer).
-- **External price history (`get_price_history.external`)** comes from [pricehistory.app](https://pricehistory.app) (daily granularity — their tracking is popularity-based, so point counts vary per product; `points` + `updated_at` always tell you what you got). Read-only: 2 cached calls per ASIN (code map kept forever, payload 6 h), no account, no cookies shared with them; a 403/429 trips a 45 s local cooldown instead of hammering. Attribution: data © pricehistory.app, free for personal use — for scale/commercial use contact them about their official API; `AMAZON_MCP_DISABLE_PH=1` disables the source entirely.
+- **External price history (`get_price_history`)** comes from [pricehistory.app](https://pricehistory.app) (daily granularity — their tracking is popularity-based, so point counts vary per product; `points` + `updated_at` always tell you what you got). Read-only: no account, no cookies shared with them; **one code lookup ever per ASIN + payload cached 6 h in sqlite (survives restarts — repeated calls are free)**; a 403/429 trips a 45 s local cooldown instead of hammering. We keep no parallel price archive of our own — theirs is strictly richer. Attribution: data © pricehistory.app, free for personal use — for scale/commercial use contact them about their official API; `AMAZON_MCP_DISABLE_PH=1` disables the source entirely.
 
 ## Troubleshooting
 

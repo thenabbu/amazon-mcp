@@ -1,6 +1,6 @@
 [project]
 name = "amazon-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server for amazon.in: search, filters, pincode, product pages, reviews"
 requires-python = ">=3.11"
 dependencies = [
