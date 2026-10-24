@@ -13,17 +13,17 @@ Works over **stdio** with any local agent (Claude, Codex, Cursor, Gemini, …) a
 
 | Tool | What it does |
 |---|---|
-| `search_products` | Search with filters: price range, min rating, brands, sort order, category, free delivery, COD, condition, country of origin. Paginates across multiple pages (`max_pages`). |
-| `discover_brands` | List brand filter tokens for a query (run before `search_products(brands=[...])`) |
-| `get_product` | Full product page: title, price + MRP + savings, hi-res images, feature bullets, description, A+ content, spec details, variants (color/size), brand, seller, warranty, EMI, bank offers, exchange offer, breadcrumbs, size chart, frequently-bought-together. Accepts a bare ASIN **or a full amazon.in product URL**. |
-| `get_reviews` | Ratings histogram (avg, total, per-star counts) + top reviews (rating, title, body, author, date, country, verified flag, helpful votes, images hi-res, variation) |
-| `get_all_reviews` | Paginated review list with sort/star filters — requires an authenticated session (see Limits) |
-| `set_pincode` | Set a 6-digit delivery PIN. Every later call in the session is personalized to it. Validates input before any network call. |
-| `get_delivery_info` | Delivery estimate for a product. Optional `pincode` param binds + fetches atomically inside one call (race-free when several agents share the server) |
-| `get_suggestions` | Related search suggestions for a query |
-| `search_best_value` | Search, then rank by a **transparent** value score: `rating × log10(rating_count+10) ÷ √price` — deterministic, formula returned with every response, no hidden weights |
-| `compare_products` | Side-by-side compare of up to 5 ASINs: normalized rows + `lowest_price_asin` / `highest_rating_asin` / `missing_fields` (unknowns stay visible, never guessed). Optional `pincode` adds deliverability per product |
-| `get_price_history` | Long-window price history from **pricehistory.app's free archive** (no account): daily series, all-time low/high **with dates**, average, current price+MRP+coupon, coupon-labelled offer series, in-window sale calendar (Prime Day…), and a transparent buy/hold `verdict` (their published 4-branch formula, no hidden weights). `external_status`: `ok / not_tracked / degraded_meta_only / unavailable / cooldown / disabled` — failures return the reason and **no data** instead of fake numbers. **Persistent sqlite cache** (6 h TTL — repeat calls and container restarts hit it; `external.cache` reports hit + age), ~2 network calls per ASIN per 6h; `AMAZON_MCP_DISABLE_PH=1` opts out. |
+| `search_products` | Search with full filters — price, rating, brand, sort, category, delivery, COD — across pages |
+| `discover_brands` | List brand filter tokens for a query (use before filtering by brand) |
+| `get_product` | Everything on a product page: price, images, specs, variants, offers, seller, warranty. ASIN or URL |
+| `get_reviews` | Ratings histogram + top reviews, no login needed |
+| `get_all_reviews` | Paginated reviews with sort/star filters (login required — see Limits) |
+| `set_pincode` | Set the 6-digit delivery PIN for the whole session |
+| `get_delivery_info` | Delivery estimate for a product; optional per-call `pincode` |
+| `get_suggestions` | Get related searches for a query |
+| `search_best_value` | Search ranked by a transparent value score (formula included in the response) |
+| `compare_products` | Compare up to 5 products side by side; flags missing fields instead of guessing |
+| `get_price_history` | Months of price history + a buy/hold verdict from pricehistory.app (cached) |
 
 ## Install
 
