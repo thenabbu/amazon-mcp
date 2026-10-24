@@ -145,44 +145,369 @@ uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp --http
 
 ## Example
 
+Real responses from the MCP (large arrays trimmed with `…`):
+
 `get_product` on a product URL:
 
-```
-title:    Redmi 15C 5G Prime Edition Dusk Purple 6GB + 128GB | Massive 6000mAh Battery | ...
-price:    ₹17,999.00   MRP: ₹31,999   savings: -44%
-brand:    Redmi        seller: Dawntech Etel!
-rating:   4.0 (744)    availability: In stock
-images:   11 hi-res    variants: 4 (2 colors x 2 storages)
-emi:      EMI starts at ₹633 per month. No Cost EMI available
-offers:   Cashback up to ₹539 (Amazon Pay ICICI) / No Cost EMI / Partner Offers
-exchange: With Exchange up to 15,500 off
-details:  40 spec keys   breadcrumbs: Electronics > Mobiles > Smartphones
+```json
+{
+  "asin": "B0G2B2QVLL",
+  "url": "https://www.amazon.in/dp/B0G2B2QVLL",
+  "title": "Redmi 15C 5G Prime Edition Dusk Purple 6GB + 128GB | Massive 6000mAh Battery | Segment's Largest 17.53cm Display Up to 120Hz | MediaTek Dimensity 6300 | 33W Fast Charging | 50MP AI Dual Camera",
+  "brand": "Redmi",
+  "price": "₹17,999.00",
+  "price_value": 17999.0,
+  "list_price": "₹31,999",
+  "savings_pct": "-44%",
+  "images": [
+    "https://m.media-amazon.com/images/I/711q7oij2qL._SL1500_.jpg",
+    "https://m.media-amazon.com/images/I/61Uqw0zt8jL._SL1500_.jpg",
+    "… (9 more)"
+  ],
+  "image_thumbs": [
+    "https://m.media-amazon.com/images/I/41+KQ4UFUkL._SX38_SY50_CR,0,0,38,50_.jpg",
+    "https://m.media-amazon.com/images/I/31LAVqojtpL._SX38_SY50_CR,0,0,38,50_.jpg",
+    "… (9 more)"
+  ],
+  "bullets": [
+    "Royale Design",
+    "Massive 6000mAh Battery",
+    "… (5 more)"
+  ],
+  "description": null,
+  "aplus": "From the manufacturer Previous page Next page Previous page Next page Previous page Next page Previous page Next page",
+  "details": {
+    "Operating System": "Android 15, Xiaomi HyperOS",
+    "RAM Memory Installed": "6 GB",
+    "Processor Series": "Mediatek Dimensity 6300",
+    "Memory Storage Capacity": "128 GB",
+    "Colour": "Dusk Purple",
+    "SIM Card Slot Count": "Dual SIM",
+    "Connector Type": "USB Type C",
+    "Form Factor": "Bar",
+    "Sim Card Size": "Nano",
+    "Water Resistance Level": "Water Resistant",
+    "Headphones Jack": "[Unknown]",
+    "Flash Memory Supported Size Maximum": "128 GB",
+    "Rear Facing Camera Photo Sensor Resolution": "50 MP",
+    "Number of Rear Facing Cameras": "2",
+    "Battery Power": "6000",
+    "Item Weight Unit of Measure": "212 Grams",
+    "Item Dimensions": "17.2 x 7.9 x 0.8 Centimeters",
+    "Frame Rate": "30fps, 60fps",
+    "GPS Geotagging Functionality": "False",
+    "Screen Size Unit of Measure": "6.9 Inches",
+    "Resolution": "720 x 1560",
+    "Refresh Rate": "120",
+    "Display Type": "LCD",
+    "Maximum Display Resolution": "2340 Pixels",
+    "Wireless Provider": "Unlocked for All Carriers",
+    "Cellular Technology": "5G",
+    "Network Connectivity Technology": "5G",
+    "Brand Name": "Redmi",
+    "Country of Origin": "India",
+    "Box Contents": "Charger, cable, SIM eject tool, Warranty card, User guide, Protective case",
+    "Warranty Description": "1 year manufacturer warranty for device and 6 months manufacturer warranty for in-box accessories including batteries from the date of purchase",
+    "Manufacturer": "BYD INDIA PRIVATE LIMITED, DEVELOPED PLOT NO.OZ-7,SIPCOT ORAGADAM, SRIPERUMBUDUR (TK) KANCHEEPURAM DISTRICT 602105 TAMIL NADU., Redmi",
+    "Unit Count": "1.0 Pack",
+    "Importer Contact Information": "Xiaomi Technology India Private Limited, Building Orchid. Block E, Embassy Tech Village, Marathahalli Outer Ring Road, Devarabisanahalli, Bengaluru 560103",
+    "Item Type Name": "Smartphone",
+    "Manufacturer Contact Information": "BYD INDIA PRIVATE LIMITED, DEVELOPED PLOT NO.OZ-7,SIPCOT ORAGADAM, SRIPERUMBUDUR (TK) KANCHEEPURAM DISTRICT 602105 TAMIL NADU.",
+    "Packer Contact Information": "BYD INDIA PRIVATE LIMITED, DEVELOPED PLOT NO.OZ-7,SIPCOT ORAGADAM, SRIPERUMBUDUR (TK) KANCHEEPURAM DISTRICT 602105 TAMIL NADU.",
+    "Best Sellers Rank": "#10 in Electronics ( See Top 100 in Electronics ) #4 in Smartphones",
+    "ASIN": "B0G2B2QVLL",
+    "Customer Reviews": "3.9 3.9 out of 5 stars (812) 3.9 out of 5 stars",
+    "Brand": "Redmi",
+    "RAM Memory Installed Size": "6 GB",
+    "CPU Model": "Mediatek Dimensity 6300"
+  },
+  "variants": {
+    "dimensions": [
+      "color_name",
+      "size_name"
+    ],
+    "items": [
+      {
+        "asin": "B0G2B4JX1F",
+        "values": [
+          "Midnight Black",
+          "4GB+128GB"
+        ],
+        "current": false
+      },
+      {
+        "asin": "B0G2BBWKCP",
+        "values": [
+          "Midnight Black",
+          "6GB+128GB"
+        ],
+        "current": false
+      },
+      "… (4 more)"
+    ]
+  },
+  "availability": "In stock",
+  "rating": 3.9,
+  "review_count": 812,
+  "coupon": null,
+  "promo_offers": null,
+  "breadcrumbs": [
+    "Electronics",
+    "Mobiles & Accessories",
+    "… (2 more)"
+  ],
+  "emi": "EMI starts at ₹633 per month. EMI starts at ₹633. No Cost EMI available EMI options",
+  "offers": [
+    "Cashback Upto ₹539.00 cashback as Amazon Pay Balance when you pay with Amazon Pay ICICI Bank Credit Cards 1 offer Cashback No Cost EMI Upto ₹469.22 EMI interest savings on Amazon Pay ICICI Bank Credit Cards 1 offer No Cost EMI Partner Offers Get GST invoice and save up to 18% on business purchases. Sign up for free"
+  ],
+  "exchange_offer": "With Exchange Up to 15,500.00 off You Pay Includes exchange service fee of Rs. Exchange your old product Which phone would you like to exchange? We are sorry. Amazon has encountered an error. Please try again. Your old phone will be rejected, if it has any dents, cracks on screen or body. View refer",
+  "seller": "Dawntech Etel!",
+  "warranty": "1 year manufacturer warranty for device and 6 months manufacturer warranty for in-box accessories including batteries from the date of purchase",
+  "fbt": null,
+  "size_chart": null,
+  "customers_say": {
+    "summary": "Customers find the phone's battery life reliable with good fast charging capabilities. However, the performance receives mixed feedback, with some saying it works perfectly while others report it doesn't work properly. The camera quality, display, and sound quality also get mixed reviews, with some finding them good while others report poor performance. Moreover, the phone receives negative feedback for its speed, network connectivity, and sound quality.",
+    "themes": [
+      {
+        "theme": "battery life",
+        "mentions": 16,
+        "positive": 12,
+        "negative": 4
+      },
+      {
+        "theme": "value for money",
+        "mentions": 43,
+        "positive": 25,
+        "negative": 18
+      },
+      "… (6 more)"
+    ]
+  },
+  "video_count": 1,
+  "video_thumb": "https://m.media-amazon.com/images/I/71-x6rPtf0L.SX38_SY50_CR,0,0,38,50_BG85,85,85_BR-120_PKdp-play-icon-overlay__.jpg",
+  "aplus_images": [
+    "https://m.media-amazon.com/images/S/aplus-media-library-service-media/27dc235e-4ac4-4fb0-bae8-2fcb726a1575.__CR0,0,1464,600_PT0_SX1464_V1___.jpg",
+    "https://m.media-amazon.com/images/S/aplus-media-library-service-media/66814fb4-c930-47fa-9b93-cb7491e322fa.__CR0,0,1464,600_PT0_SX1464_V1___.jpg",
+    "… (9 more)"
+  ],
+  "ships_from": "Amazon",
+  "add_to_cart": true,
+  "buying_options_count": null,
+  "http_status": 200,
+  "warnings": []
+}
 ```
 
 `get_reviews` on the same product:
 
-```
-avg 4.0, 744 ratings, histogram 5*54% 4*21% 3*8% 2*3% 1*14%
-8 top reviews, e.g. "Battery lasts me 2 days" — Aditi, 16 October 2026 (verified purchase)
+```json
+{
+  "asin": "B0G2B2QVLL",
+  "ratings": {
+    "average": 3.9,
+    "total_ratings": 812,
+    "histogram_percent": {
+      "5": 52,
+      "4": 21,
+      "3": 9,
+      "2": 3,
+      "1": 15
+    },
+    "histogram_counts": {
+      "5": 422,
+      "4": 171,
+      "3": 73,
+      "2": 24,
+      "1": 122
+    }
+  },
+  "ratings_extras": {
+    "reviews_with_images": 9,
+    "mention_chips": [
+      {
+        "theme": "battery life",
+        "mentions": 16,
+        "positive": 12,
+        "negative": 4
+      },
+      {
+        "theme": "value for money",
+        "mentions": 43,
+        "positive": 25,
+        "negative": 18
+      },
+      "… (6 more)"
+    ]
+  },
+  "top_reviews": [
+    {
+      "review_id": "R3BBT5WIWPMAAY",
+      "rating": 5.0,
+      "title": "⭐⭐⭐⭐⭐ **Excellent Battery Life and Great Value for Money!**",
+      "author": "Pradeep Kumar Jangid",
+      "author_profile": "https://www.amazon.in/gp/profile/amzn1.account.AEG6ZLTRGR6CLBMBIPP7ZCID6F3A",
+      "country": "India",
+      "date": "11 October 2026",
+      "verified_purchase": true,
+      "variation": "Colour: Midnight Black",
+      "body": "Really impressed with this phone! The large 6000mAh battery is a big plus for everyday use, making it a great choice for anyone who wants reliable battery life. The large 120Hz display offers a smooth experience for browsing, watching videos, and using apps. The MediaTek Dimensity 6300 processor is suitable for regular daily tasks, while the 6GB RAM and 128GB storage provide a practical combination for everyday use. The 50MP AI camera is another useful feature for capturing photos, and 33W fast charging adds convenience. The Midnight Black colour looks sleek and stylish, too. Overall, a feature-packed smartphone at an attractive price point. A good option for anyone looking for a large display, strong battery capacity, and 5G connectivity! 👍 Make the review sound more personalHighlight the phone’s main strengths",
+      "helpful_count": 23,
+      "images": [],
+      "images_hi_res": [],
+      "has_image": false
+    },
+    {
+      "review_id": "R176YQDSDZ64PU",
+      "rating": 4.0,
+      "title": "Average",
+      "author": "Dhruv Gupta",
+      "author_profile": "https://www.amazon.in/gp/profile/amzn1.account.AHZECFUBQB2MHIAK2CBNYYYK3VEA",
+      "country": "India",
+      "date": "20 October 2026",
+      "verified_purchase": true,
+      "variation": "Colour: Midnight Black",
+      "body": "Ok as expected.",
+      "helpful_count": 0,
+      "images": [],
+      "images_hi_res": [],
+      "has_image": false
+    },
+    "… (6 more)"
+  ]
+}
 ```
 
 `get_price_history` over a 90-day window:
 
-```
-94 daily points: 2025-12-11 → 2026-10-24 (pricehistory.app, cache hit 38 min old)
-low:     ₹13,249 on 21 Feb 2026     high: ₹21,578 on 6 Aug 2026
-avg:     ₹17,585                    now:  ₹17,999 (MRP ₹31,999)
-verdict: Better to wait — transparent formula, no hidden weights
+```json
+{
+  "asin": "B0G2B2QVLL",
+  "window_days": 90,
+  "external": {
+    "source": "pricehistory.app",
+    "code": "G2N6dpw8",
+    "asin": "B0G2B2QVLL",
+    "product_name": "Redmi 15C 5G Prime Edition Dusk Purple 6GB",
+    "points": 94,
+    "granularity": "daily",
+    "window": {
+      "from": "2025-12-11",
+      "to": "2026-10-24"
+    },
+    "lowest_ever": {
+      "price": 13249,
+      "on": "2026-02-21"
+    },
+    "highest_ever": {
+      "price": 21578,
+      "on": "2026-08-06"
+    },
+    "avg": 17585,
+    "current": {
+      "price": 17999,
+      "mrp": 31999,
+      "coupon": null,
+      "deal": null
+    },
+    "lowest_offer_ever": 13249,
+    "series": [
+      {
+        "t": "2026-08-01",
+        "price": 20499
+      },
+      {
+        "t": "2026-08-06",
+        "price": 21578
+      },
+      "… (47 more)"
+    ],
+    "offer_series": [
+      {
+        "t": "2026-08-07",
+        "price": 19498,
+        "offers": [
+          "1000 Coupon"
+        ]
+      },
+      {
+        "t": "2026-08-26",
+        "price": 19499,
+        "offers": [
+          "1000 Coupon"
+        ]
+      }
+    ],
+    "sales": [],
+    "verdict": {
+      "price": 17999,
+      "key": "wait",
+      "label": "Better to wait",
+      "formula": "price<=lowest*1.02 -> yes; <=avg(or (lowest+highest)/2) -> okay; <=avg+(highest-avg)*0.6 -> wait; else skip"
+    },
+    "updated_at": "2026-10-24 06:45:45",
+    "cache": {
+      "hit": true,
+      "age_s": 2979
+    }
+  },
+  "external_status": "ok",
+  "note": "pricehistory.app archive: 94 daily pts, updated 2026-10-24 06:45:45, window 2025-12-11..2026-10-24 — cache hit 2979s old"
+}
 ```
 
 `compare_products` on two earbuds, with delivery to pincode 400001:
 
-```
-                  price    rating    stock       delivery to 400001
-Kratos  B0GCMGNVJX  ₹529   3.8 (3845)  In stock   FREE delivery Tuesday, 27 October
-pTron   B0D78XSMSM  ₹599   4.0 (3510)  In stock   FREE delivery Tuesday, 27 October
-
-lowest price: B0GCMGNVJX   highest rated: B0D78XSMSM   missing fields: none
+```json
+{
+  "products": [
+    {
+      "asin": "B0GCMGNVJX",
+      "title": "Kratos Pop Ear Buds Wireless with 60H Playtime, Noise Isolation & Clear Calls, Bluetooth Earbuds with Voice Assistant, Ear Buds with Bluetooth V 5.3 & with Type C Fast Charging, IPX4 TWS Earphones",
+      "brand": "Kratos",
+      "price_value": 529.0,
+      "list_price": "₹2,999",
+      "rating": 3.8,
+      "review_count": 3845,
+      "availability": "In stock",
+      "add_to_cart": true,
+      "delivery": {
+        "bound_pin": "400001",
+        "delivery_info": [
+          "FREE delivery Tuesday, 27 October",
+          "FREE delivery Tue, 27 Oct",
+          "… (4 more)"
+        ],
+        "error": null
+      }
+    },
+    {
+      "asin": "B0D78XSMSM",
+      "title": "pTron Bassbuds Astra in-Ear TWS Earbuds w/Stereo Sound, 50Hrs Playtime, Stereo Calls, Custom EQ, Mobile App, BTv5.3 Headphones, Touch Control, Voice Assistant, Type C Charging & IPX4 (Black)",
+      "brand": "pTron",
+      "price_value": 599.0,
+      "list_price": "₹2,899",
+      "rating": 4.0,
+      "review_count": 3510,
+      "availability": "In stock",
+      "add_to_cart": true,
+      "delivery": {
+        "bound_pin": "400001",
+        "delivery_info": [
+          "FREE delivery Tuesday, 27 October",
+          "FREE Delivery",
+          "… (5 more)"
+        ],
+        "error": null
+      }
+    }
+  ],
+  "comparison": {
+    "lowest_price_asin": "B0GCMGNVJX",
+    "highest_rating_asin": "B0D78XSMSM",
+    "missing_fields": {}
+  },
+  "warnings": []
+}
 ```
 
 ## Example prompts
