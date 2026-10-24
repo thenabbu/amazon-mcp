@@ -6,7 +6,7 @@ and polite rate limiting.
 
 Run: python server.py   (stdio transport)
 """
-import sys, os, re, json, time, random, functools, threading, secrets, math, sqlite3, statistics, datetime
+import sys, os, re, json, time, random, functools, threading, secrets, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
@@ -35,7 +35,7 @@ class _StaticTokenVerifier:
             return AccessToken(token=token, client_id="static-token", scopes=[])
         return None
 
-mcp = MCPServer("amazon-in", version="0.2.0",
+mcp = MCPServer("amazon-in", version="0.3.0",
                 auth=(AuthSettings(issuer_url=_PUBLIC_URL, resource_server_url=_PUBLIC_URL,
                                    validate_token_resource=False) if _HTTP_TOKEN else None),
                 token_verifier=(_StaticTokenVerifier(_HTTP_TOKEN) if _HTTP_TOKEN else None))
@@ -323,9 +323,6 @@ def get_product(asin: str) -> str:
     out["description"] = _clip(out.get("description"))
     out["aplus"] = _clip(out.get("aplus"))
     out["http_status"] = r.status_code
-    # best-effort local price observation (never fails the fetch)
-    if out.get("price_value"):
-        _record_price(a, out.get("price_value"), out.get("list_price"), out.get("availability"))
     # honest per-field reporting: a missing price is NOT a successful full extraction
     out["warnings"] = (["PRICE_UNAVAILABLE: no parseable price rendered on this page"]
                        if out.get("price_value") is None else [])
@@ -486,23 +483,6 @@ def _compare_rows(rows):
         "missing_fields": {a: ks for a, ks in missing.items() if ks},
     }
 
-def _price_db():
-    pc.STATE_DIR.mkdir(parents=True, exist_ok=True)
-    c = sqlite3.connect(str(pc.STATE_DIR / "prices.db"))
-    c.execute("CREATE TABLE IF NOT EXISTS price_observations (asin TEXT NOT NULL, observed_at TEXT NOT NULL, price REAL, list_price REAL, availability TEXT)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_po_asin ON price_observations(asin)")
-    return c
-
-def _record_price(asin, price, list_price=None, availability=None):
-    if not price:
-        return
-    try:
-        with _price_db() as c:
-            c.execute("INSERT INTO price_observations VALUES (?,?,?,?,?)",
-                      (asin, datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-                       price, list_price, availability))
-    except Exception:
-        pass   # history is best-effort — a db hiccup must never fail a product fetch
 
 @mcp.tool()
 @_guarded
@@ -572,46 +552,27 @@ def compare_products(asins: list[str], pincode: str | None = None) -> str:
 @mcp.tool()
 @_guarded
 def get_price_history(asin: str, days: int = 90) -> str:
-    """Price history from TWO clearly separated sources, never merged. local{} = our own SQLite observations (recorded automatically by get_product/compare_products): observations, days_covered, first/last, min, max, median, latest, series. external{} = pricehistory.app's archive (free, no account): daily series, all-time lowest_ever/highest_ever WITH dates, avg, current price+MRP+coupon, coupon-labelled offer_series, in-window sale calendar (Prime Day etc.), verdict {key: yes|okay|wait|skip, label, formula}. external_status: ok | not_tracked | degraded_meta_only (aggregates only, no series) | unavailable | cooldown | disabled. *_ever/avg are full-archive; series/offer_series/sales are clipped to `days`. External costs 2 cached calls per ASIN (code map kept forever, payload 6h); AMAZON_MCP_DISABLE_PH=1 turns it off. note always states both sources' counts — observations are never dressed up as a market history."""
+    """Long-window price history from pricehistory.app's free archive (no account): daily series, all-time lowest_ever/highest_ever WITH dates, avg, current price+MRP+coupon, coupon-labelled offer_series, in-window sale calendar (Prime Day etc.), verdict {key: yes|okay|wait|skip, label, formula}. external_status: ok | not_tracked | degraded_meta_only (aggregates only, no series) | unavailable | cooldown | disabled — failures return the reason and NO data instead of fake numbers. *_ever/avg are full-archive; series/offer_series/sales clip to `days`. Results are PERSISTENTLY cached in sqlite (6 h TTL: repeat calls AND container restarts hit cache; external.cache reports hit + age_s). Per ASIN: one code lookup ever, then ~2 calls per 6h. AMAZON_MCP_DISABLE_PH=1 disables the source entirely."""
     a, bad = _need_asin(asin)
     if bad:
         return bad
     if not isinstance(days, int) or not 1 <= days <= 3650:
         return _err("INVALID_PARAM", param="days", detail="days must be an integer 1-3650")
-    cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat(timespec="seconds")
-    try:
-        with _price_db() as c:
-            rows = c.execute("SELECT observed_at, price, list_price, availability FROM price_observations "
-                             "WHERE asin=? AND observed_at>=? ORDER BY observed_at", (a, cutoff)).fetchall()
-    except Exception as e:
-        return _err("EXCEPTION", detail=f"price db: {e}")
-    obs = [{"observed_at": r[0], "price": r[1], "list_price": r[2], "availability": r[3]} for r in rows]
-    prices = [o["price"] for o in obs]
-    local = {
-        "observations": len(obs),
-        "days_covered": len({o["observed_at"][:10] for o in obs}) if obs else 0,
-        "first_observed": obs[0]["observed_at"] if obs else None,
-        "last_observed": obs[-1]["observed_at"] if obs else None,
-        "min": min(prices) if prices else None,
-        "max": max(prices) if prices else None,
-        "median": statistics.median(prices) if prices else None,
-        "latest": prices[-1] if prices else None,
-        "series": obs,
-        "note": (f"{len(obs)} local observation(s)" + (f" since {obs[0]['observed_at'][:10]}" if obs else "")
-                 + (" — our own fetches only" if obs else " — fetch a product with get_product to start recording")),
-    }
     ext, status = None, "disabled"
     try:
         ext, status = ph.get(a, days)
     except Exception as e:
         ext, status = None, f"unavailable ({type(e).__name__})"
-    src = (f"external = pricehistory.app archive ({ext['points']} daily pts, updated {ext.get('updated_at')})"
-           if ext and status == "ok" else
-           f"external = pricehistory.app ({status})")
-    note = (f"local = our own fetches ({len(obs)} obs"
-            + (f" since {obs[0]['observed_at'][:10]}" if obs else "") + f"); {src} — two independent sources, not merged")
-    return json.dumps({"asin": a, "window_days": days, "local": local,
-                       "external": ext, "external_status": status, "note": note},
+    if ext and status == "ok":
+        cache = ext.get("cache") or {}
+        note = (f"pricehistory.app archive: {ext['points']} daily pts"
+                + (f", updated {ext.get('updated_at')}" if ext.get("updated_at") else "")
+                + (f", window {ext['window']['from']}..{ext['window']['to']}" if ext.get("window") else "")
+                + (f" — cache hit {cache.get('age_s')}s old" if cache.get("hit") else " — cache miss, fresh fetch"))
+    else:
+        note = f"pricehistory.app: {status} — no data returned (history is never fabricated)"
+    return json.dumps({"asin": a, "window_days": days, "external": ext,
+                       "external_status": status, "note": note},
                       ensure_ascii=False, default=str)
 
 def main():
