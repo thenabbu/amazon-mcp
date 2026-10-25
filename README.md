@@ -147,7 +147,8 @@ uvx --from git+https://github.com/thenabbu/amazon-mcp amazon-mcp --http
 
 Real responses from the MCP (large arrays trimmed with `…`):
 
-`get_product` on a product URL:
+<details>
+<summary><code>get_product on a product URL</code></summary>
 
 ```json
 {
@@ -298,7 +299,10 @@ Real responses from the MCP (large arrays trimmed with `…`):
 }
 ```
 
-`get_reviews` on the same product:
+</details>
+
+<details>
+<summary><code>get_reviews on the same product</code></summary>
 
 ```json
 {
@@ -377,7 +381,10 @@ Real responses from the MCP (large arrays trimmed with `…`):
 }
 ```
 
-`get_price_history` over a 90-day window:
+</details>
+
+<details>
+<summary><code>get_price_history over a 90-day window</code></summary>
 
 ```json
 {
@@ -455,7 +462,10 @@ Real responses from the MCP (large arrays trimmed with `…`):
 }
 ```
 
-`compare_products` on two earbuds, with delivery to pincode 400001:
+</details>
+
+<details>
+<summary><code>compare_products on two earbuds, with delivery to pincode 400001</code></summary>
 
 ```json
 {
@@ -509,6 +519,8 @@ Real responses from the MCP (large arrays trimmed with `…`):
   "warnings": []
 }
 ```
+
+</details>
 
 ## Example prompts
 
